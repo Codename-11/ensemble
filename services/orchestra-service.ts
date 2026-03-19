@@ -19,6 +19,7 @@ import {
 import { isSelf, getHostById, getSelfHostId } from '../lib/hosts-config'
 import { getRuntime } from '../lib/agent-runtime'
 import { resolveAgentProgram } from '../lib/agent-config'
+import { AgentWatchdog } from '../lib/agent-watchdog'
 import {
   collabPromptFile, collabDeliveryFile, collabSummaryFile,
   collabRuntimeDir, collabFinishedMarker, collabBridgePosted,
@@ -54,12 +55,24 @@ const TELEGRAM_CHAT_ID = '***REDACTED***'
 class OrchestraService {
   private readonly disbandingTeams = new Set<string>()
   private readonly idleCheckTimer: NodeJS.Timeout
+  private readonly watchdog: AgentWatchdog
 
   constructor() {
     this.idleCheckTimer = setInterval(() => {
       void this.checkIdleTeams()
     }, IDLE_CHECK_INTERVAL_MS)
     this.idleCheckTimer.unref()
+    this.watchdog = new AgentWatchdog({
+      loadTeams,
+      getMessages: (teamId: string) => getMessages(teamId),
+      appendMessage,
+      getRuntime,
+      resolveAgentProgram,
+      isSelf: (hostId?: string) => isSelf(hostId || ''),
+      getHostById,
+      postRemoteSessionCommand,
+      collabDeliveryFile,
+    })
 
     for (const signal of ['SIGINT', 'SIGTERM', 'beforeExit', 'exit'] as const) {
       process.once(signal, () => this.stop())
@@ -126,6 +139,7 @@ class OrchestraService {
 
   private stop(): void {
     clearInterval(this.idleCheckTimer)
+    this.watchdog.stop()
   }
 }
 

@@ -1,0 +1,182 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { OrchestraMessage, OrchestraTeam } from '../types/orchestra'
+import {
+  AgentWatchdog,
+  WATCHDOG_NUDGE_TEXT,
+  getWatchdogNudgeMs,
+  getWatchdogStallMs,
+} from '../lib/agent-watchdog'
+
+function makeTeam(overrides: Partial<OrchestraTeam> = {}): OrchestraTeam {
+  return {
+    id: overrides.id ?? 'team-1',
+    name: overrides.name ?? 'alpha',
+    description: overrides.description ?? 'test team',
+    status: overrides.status ?? 'active',
+    agents: overrides.agents ?? [
+      {
+        agentId: 'agent-1',
+        name: 'codex-1',
+        program: 'codex',
+        role: 'lead',
+        hostId: 'local',
+        status: 'active',
+      },
+    ],
+    createdBy: overrides.createdBy ?? 'test',
+    createdAt: overrides.createdAt ?? '2026-03-19T10:00:00.000Z',
+    completedAt: overrides.completedAt,
+    feedMode: overrides.feedMode ?? 'live',
+    result: overrides.result,
+  }
+}
+
+function makeMessage(overrides: Partial<OrchestraMessage> = {}): OrchestraMessage {
+  return {
+    id: overrides.id ?? `msg-${Math.random().toString(36).slice(2, 8)}`,
+    teamId: overrides.teamId ?? 'team-1',
+    from: overrides.from ?? 'codex-1',
+    to: overrides.to ?? 'team',
+    content: overrides.content ?? 'progress',
+    type: overrides.type ?? 'chat',
+    timestamp: overrides.timestamp ?? '2026-03-19T10:00:00.000Z',
+  }
+}
+
+describe('AgentWatchdog', () => {
+  const originalNudgeMs = process.env.ENSEMBLE_WATCHDOG_NUDGE_MS
+  const originalStallMs = process.env.ENSEMBLE_WATCHDOG_STALL_MS
+
+  let nowMs: number
+  let teams: OrchestraTeam[]
+  let messages: OrchestraMessage[]
+  let appended: OrchestraMessage[]
+  let sendKeys: ReturnType<typeof vi.fn>
+  let pasteFromFile: ReturnType<typeof vi.fn>
+  let postRemoteSessionCommand: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    nowMs = new Date('2026-03-19T10:00:00.000Z').getTime()
+    teams = [makeTeam()]
+    messages = [makeMessage({ timestamp: '2026-03-19T10:00:00.000Z' })]
+    appended = []
+    sendKeys = vi.fn(async () => {})
+    pasteFromFile = vi.fn(async () => {})
+    postRemoteSessionCommand = vi.fn(async () => {})
+  })
+
+  afterEach(() => {
+    if (originalNudgeMs === undefined) {
+      delete process.env.ENSEMBLE_WATCHDOG_NUDGE_MS
+    } else {
+      process.env.ENSEMBLE_WATCHDOG_NUDGE_MS = originalNudgeMs
+    }
+    if (originalStallMs === undefined) {
+      delete process.env.ENSEMBLE_WATCHDOG_STALL_MS
+    } else {
+      process.env.ENSEMBLE_WATCHDOG_STALL_MS = originalStallMs
+    }
+  })
+
+  function createWatchdog() {
+    return new AgentWatchdog({
+      loadTeams: () => teams,
+      getMessages: () => messages,
+      appendMessage: (_teamId, message) => appended.push(message),
+      getRuntime: () => ({ sendKeys, pasteFromFile }),
+      resolveAgentProgram: () => ({ inputMethod: 'sendKeys' }),
+      isSelf: () => true,
+      getHostById: () => undefined,
+      postRemoteSessionCommand,
+      collabDeliveryFile: (teamId, sessionName) => `/tmp/${teamId}/${sessionName}.txt`,
+      now: () => nowMs,
+      pollIntervalMs: 60_000,
+      nudgeAfterMs: 90_000,
+      stallAfterMs: 180_000,
+    })
+  }
+
+  it('nudges an active agent after prolonged silence and logs it to the team feed', async () => {
+    const watchdog = createWatchdog()
+    await watchdog.poll()
+
+    nowMs += 91_000
+    await watchdog.poll()
+
+    expect(sendKeys).toHaveBeenCalledWith('alpha-codex-1', WATCHDOG_NUDGE_TEXT, { literal: true, enter: true })
+    expect(appended).toHaveLength(1)
+    expect(appended[0].content).toContain('Watchdog nudged codex-1')
+    watchdog.stop()
+  })
+
+  it('marks an agent stalled when silence continues after the nudge', async () => {
+    const watchdog = createWatchdog()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await watchdog.poll()
+    nowMs += 91_000
+    await watchdog.poll()
+
+    nowMs += 181_000
+    await watchdog.poll()
+
+    expect(appended).toHaveLength(2)
+    expect(appended[1].content).toContain('marked codex-1 as stalled')
+    expect(warnSpy).toHaveBeenCalledWith('[Watchdog] Agent codex-1 in team team-1 stalled after watchdog nudge')
+    watchdog.stop()
+  })
+
+  it('resets stall tracking when a new agent message arrives after a nudge', async () => {
+    const watchdog = createWatchdog()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await watchdog.poll()
+    nowMs += 91_000
+    await watchdog.poll()
+
+    messages = [
+      ...messages,
+      makeMessage({ id: 'msg-new', timestamp: new Date(nowMs + 1_000).toISOString(), content: 'Still working' }),
+    ]
+    nowMs += 2_000
+    await watchdog.poll()
+
+    // Advance 80s — below nudge threshold, so no new nudge and no stall
+    nowMs += 80_000
+    await watchdog.poll()
+
+    expect(appended).toHaveLength(1) // only the original nudge
+    expect(warnSpy).not.toHaveBeenCalled()
+    watchdog.stop()
+  })
+
+  it('drops watchdog state for non-active teams so disbanded teams are no longer monitored', async () => {
+    const watchdog = createWatchdog()
+
+    await watchdog.poll()
+    nowMs += 91_000
+    await watchdog.poll()
+
+    teams = []
+    nowMs += 181_000
+    await watchdog.poll()
+
+    teams = [makeTeam()]
+    await watchdog.poll()
+
+    expect(appended).toHaveLength(2)
+    expect(appended[0].content).toContain('Watchdog nudged codex-1')
+    expect(appended[1].content).toContain('Watchdog nudged codex-1')
+    expect(appended.some(message => message.content.includes('marked codex-1 as stalled'))).toBe(false)
+    watchdog.stop()
+  })
+
+  it('reads watchdog thresholds from environment variables', () => {
+    process.env.ENSEMBLE_WATCHDOG_NUDGE_MS = '1234'
+    process.env.ENSEMBLE_WATCHDOG_STALL_MS = '5678'
+
+    expect(getWatchdogNudgeMs()).toBe(1234)
+    expect(getWatchdogStallMs()).toBe(5678)
+  })
+})
