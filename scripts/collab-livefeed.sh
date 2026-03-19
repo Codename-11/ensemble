@@ -59,7 +59,7 @@ for raw in lines:
     sender = msg.get("from", "?")
     if sender == "orchestra":
         continue
-    content = str(msg.get("content", "")).replace("/tmp/orchestra/", "").replace("/tmp/orchestra-msgs/", "").strip()[:200]
+    content = __import__('re').sub(r'/tmp/orchestra[-\w]*/', '', str(msg.get("content", ""))).strip()[:200]
     print(f"{sender}\t{content}")
 PY
 }

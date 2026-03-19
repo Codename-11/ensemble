@@ -380,8 +380,8 @@ class Monitor {
       const summaryFile = `/tmp/collab-summary-${this.teamId}.txt`
       const summaryText = agents.map(agent => {
         const msgs = agentMsgs.filter(m => m.from === agent)
-        const first = msgs[0]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
-        const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
+        const first = msgs[0]?.content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim() || ''
+        const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim() || ''
         return `${agent} (${msgs.length} msgs):\n  Start: ${first.slice(0, 300)}\n  Eind: ${last.slice(0, 500)}`
       }).join('\n\n')
 
@@ -577,7 +577,7 @@ class Monitor {
     // Clean and structure content for terminal display
     const contentWidth = w - 8
     const raw = msg.content
-      .replace(/\s*\/tmp\/orchestra-msgs\s*/g, '')  // strip leaked path
+      .replace(/\s*\/tmp\/orchestra[-\w]*\s*/g, '')  // strip leaked path
       .trim()
 
     // Parse into structured blocks
@@ -708,12 +708,12 @@ class Monitor {
       )
 
       if (msgs.length > 0) {
-        const first = msgs[0].content.replace(/\/tmp\/orchestra-msgs/g, '').trim()
+        const first = msgs[0].content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim()
         const firstTrunc = first.slice(0, w - 14) + (first.length > w - 14 ? '...' : '')
         lines.push(`  ${color.dim}Start:${color.reset} ${style.text}${firstTrunc}${color.reset}\n`)
       }
       if (msgs.length > 1) {
-        const last = msgs[msgs.length - 1].content.replace(/\/tmp\/orchestra-msgs/g, '').trim()
+        const last = msgs[msgs.length - 1].content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim()
         const lastTrunc = last.slice(0, w - 14) + (last.length > w - 14 ? '...' : '')
         lines.push(`  ${color.dim}Eind:${color.reset}  ${style.text}${lastTrunc}${color.reset}\n`)
       }

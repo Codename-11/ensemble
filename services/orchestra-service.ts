@@ -650,8 +650,8 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
 
   const summaryText = agents.map(agent => {
     const msgs = agentMsgs.filter(m => m.from === agent)
-    const first = msgs[0]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
-    const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
+    const first = msgs[0]?.content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim() || ''
+    const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/orchestra[-\w]*/g, '').trim() || ''
     const tokens = tokenUsageMap[agent] || 'unknown'
     return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first.slice(0, 300)}\n  Eind: ${last.slice(0, 500)}`
   }).join('\n\n')
