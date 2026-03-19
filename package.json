@@ -16,6 +16,7 @@
     "cli": "tsx cli/ensemble.ts"
   },
   "dependencies": {
+    "tsx": "^4.0.0",
     "uuid": "^9.0.0"
   },
   "devDependencies": {
@@ -24,7 +25,7 @@
     "eslint": "^8.57.0",
     "@typescript-eslint/parser": "^7.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
   }
 }

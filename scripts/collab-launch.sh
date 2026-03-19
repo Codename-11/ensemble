@@ -3,6 +3,10 @@
 # Usage: collab-launch.sh <working-dir> <task-description>
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./collab-paths.sh
+source "$SCRIPT_DIR/collab-paths.sh"
+
 CWD="${1:-.}"
 TASK="${2:?Usage: collab-launch.sh <cwd> <task>}"
 API="http://localhost:23000"
@@ -33,7 +37,7 @@ else
 fi
 
 # ─── 2. Create team (use env vars to avoid quoting hell) ───
-TEAM_NAME="collab-$(date +%s)"
+TEAM_NAME="collab-$(python3 -c 'import random,time; print(str(time.time_ns()//1000000)+"-"+str(random.randint(1000,9999)))')"
 PAYLOAD_FILE=$(mktemp)
 TNAME="$TEAM_NAME" TDESC="$TASK" TCWD="$CWD" THOST="$HOST_ID" PFILE="$PAYLOAD_FILE" python3 -c "
 import json, os
@@ -54,12 +58,23 @@ RESULT=$(curl -sf -X POST "$API/api/orchestra/teams" \
 rm -f "$PAYLOAD_FILE"
 
 TEAM_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['team']['id'])")
-echo "$TEAM_ID" > /tmp/collab-team-id.txt
+RUNTIME_DIR="$(collab_runtime_dir "$TEAM_ID")"
+MESSAGES_FILE="$(collab_messages_file "$TEAM_ID")"
+BRIDGE_PID_FILE="$(collab_bridge_pid "$TEAM_ID")"
+BRIDGE_LOG_FILE="$(collab_bridge_log "$TEAM_ID")"
+POLLER_PID_FILE="$(collab_poller_pid "$TEAM_ID")"
+FEED_FILE="$(collab_feed_file "$TEAM_ID")"
+TEAM_ID_FILE="$(collab_team_id_file "$TEAM_ID")"
+
+mkdir -p "$RUNTIME_DIR" "$(dirname "$MESSAGES_FILE")" "$(dirname "$FEED_FILE")"
+touch "$MESSAGES_FILE"
+printf '%s\n' "$TEAM_ID" > "$TEAM_ID_FILE"
+# Also write to a well-known location so callers can find the latest team ID
+printf '%s\n' "$TEAM_ID" > /tmp/collab-team-id.txt
 echo -e "  ${CHECK} Team created ${D}(${TEAM_NAME})${R}"
 
-# ─── 3. Bridge ───
-nohup ~/Documents/ensemble/scripts/orchestra-bridge.sh "$TEAM_ID" "$API" > /tmp/orchestra-bridge-$TEAM_ID.log 2>&1 &
-echo $! > /tmp/orchestra-bridge-$TEAM_ID.pid
+# ─── 3. Bridge (writes its own PID file via single-instance guard) ───
+nohup ~/Documents/ensemble/scripts/orchestra-bridge.sh "$TEAM_ID" "$API" >> "$BRIDGE_LOG_FILE" 2>&1 &
 echo -e "  ${CHECK} Bridge started"
 
 # ─── 4. Monitor ───
@@ -69,34 +84,38 @@ if [ -n "${TMUX:-}" ]; then
   echo -e "  ${CHECK} Monitor opened ${D}(right panel)${R}"
   MONITOR_MODE="split"
 else
-  tmux kill-session -t ensemble-monitor 2>/dev/null || true
-  tmux new-session -d -s ensemble-monitor -c ~/Documents/ensemble \
+  MONITOR_SESSION="ensemble-$TEAM_ID"
+  tmux kill-session -t "$MONITOR_SESSION" 2>/dev/null || true
+  tmux new-session -d -s "$MONITOR_SESSION" -c ~/Documents/ensemble \
     "./node_modules/.bin/tsx cli/monitor.ts $TEAM_ID"
-  echo -e "  ${CHECK} Monitor ready ${D}(tmux attach -t ensemble-monitor)${R}"
+  echo -e "  ${CHECK} Monitor ready ${D}(tmux attach -t $MONITOR_SESSION)${R}"
   MONITOR_MODE="session"
 fi
 
 # ─── 5. Background poller ───
 nohup bash -c '
-TID="'"$TEAM_ID"'"; FF="/tmp/collab-feed-'"$TEAM_ID"'.txt"; S=0
+TID="'"$TEAM_ID"'"
+MESSAGES_FILE="'"$MESSAGES_FILE"'"
+FEED_FILE="'"$FEED_FILE"'"
+S=0
 while true; do
-  M=$(wc -l < "/tmp/orchestra-msgs/$TID.jsonl" 2>/dev/null | tr -d " "); [ -z "$M" ] && M=0
+  M=$(wc -l < "$MESSAGES_FILE" 2>/dev/null | tr -d " "); [ -z "$M" ] && M=0
   if [ "$M" -gt "$S" ]; then
-    tail -n +"$((S+1))" "/tmp/orchestra-msgs/$TID.jsonl" >> "$FF" 2>/dev/null
+    tail -n +"$((S+1))" "$MESSAGES_FILE" >> "$FEED_FILE" 2>/dev/null
     S=$M
   fi
   sleep 5
 done' > /dev/null 2>&1 &
-echo $! > /tmp/collab-poller-$TEAM_ID.pid
+printf '%s\n' "$!" > "$POLLER_PID_FILE"
 
 # ─── 6. Wait for agents ───
 echo -ne "  ${SPIN} Agents spawning..."
 for _ in $(seq 1 12); do
   sleep 1
-  MC=$(wc -l < "/tmp/orchestra-msgs/$TEAM_ID.jsonl" 2>/dev/null | tr -d ' ' || echo "0")
+  MC=$(wc -l < "$MESSAGES_FILE" 2>/dev/null | tr -d ' ' || echo "0")
   [ "${MC:-0}" -gt "0" ] && break
 done
-MC=$(wc -l < "/tmp/orchestra-msgs/$TEAM_ID.jsonl" 2>/dev/null | tr -d ' ' || echo "0")
+MC=$(wc -l < "$MESSAGES_FILE" 2>/dev/null | tr -d ' ' || echo "0")
 if [ "${MC:-0}" -gt "0" ]; then
   echo -e "\r  ${CHECK} Agents communicating ${D}(${MC} messages)${R}"
 else
@@ -111,7 +130,7 @@ if [ "$MONITOR_MODE" = "split" ]; then
   echo -e "  ${D}┌─ Monitor (right panel) ───────────────┐${R}"
 else
   echo -e "  ${D}┌─ Monitor ─────────────────────────────┐${R}"
-  echo -e "  ${D}│${R}  ${D}tmux attach -t ensemble-monitor${R}      ${D}│${R}"
+  echo -e "  ${D}│${R}  ${D}tmux attach -t $MONITOR_SESSION${R}      ${D}│${R}"
 fi
 echo -e "  ${D}│${R}  ${W}s${R}     ${D}steer team${R}                     ${D}│${R}"
 echo -e "  ${D}│${R}  ${W}1${R}/${W}2${R}   ${D}steer codex / claude${R}           ${D}│${R}"

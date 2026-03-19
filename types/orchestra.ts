@@ -18,6 +18,8 @@ export interface OrchestraTeamAgent {
   role: string
   hostId: string
   status: 'spawning' | 'active' | 'idle' | 'done'
+  worktreePath?: string
+  worktreeBranch?: string
 }
 
 export interface OrchestraTeamResult {
@@ -49,4 +51,22 @@ export interface CreateTeamRequest {
   }>
   feedMode?: 'silent' | 'summary' | 'live'
   workingDirectory?: string
+  templateName?: string
+  useWorktrees?: boolean
+}
+
+export interface CollabTemplateRole {
+  role: string
+  focus: string
+}
+
+export interface CollabTemplate {
+  name: string
+  description: string
+  suggestedTaskPrefix: string
+  roles: CollabTemplateRole[]
+}
+
+export interface CollabTemplatesFile {
+  templates: Record<string, CollabTemplate>
 }

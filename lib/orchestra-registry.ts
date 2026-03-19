@@ -4,6 +4,7 @@ import os from 'os'
 import { v4 as uuidv4 } from 'uuid'
 import type { OrchestraTeam, OrchestraMessage, CreateTeamRequest } from '../types/orchestra'
 import { getOrchestraDataDir } from './ensemble-paths'
+import { collabMessagesFile } from './collab-paths'
 
 const ORCHESTRA_DIR = getOrchestraDataDir()
 const TEAMS_FILE = path.join(ORCHESTRA_DIR, 'teams.json')
@@ -78,7 +79,7 @@ export function appendMessage(teamId: string, message: OrchestraMessage): void {
 export function getMessages(teamId: string, since?: string): OrchestraMessage[] {
   const sources = [
     path.join(MESSAGES_DIR, teamId, 'feed.jsonl'),
-    path.join('/tmp/orchestra-msgs', `${teamId}.jsonl`),
+    collabMessagesFile(teamId),
   ]
 
   const seenIds = new Set<string>()

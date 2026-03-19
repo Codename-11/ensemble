@@ -146,7 +146,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (method === 'POST') {
         const body = JSON.parse(await readBody(req))
-        const result = await sendTeamMessage(teamId, body.to || 'team', body.content, body.from)
+        const result = await sendTeamMessage(teamId, body.to || 'team', body.content, body.from, body.id, body.timestamp)
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
       }

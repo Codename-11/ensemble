@@ -189,6 +189,35 @@ export async function postRemoteSessionCommand(
 }
 
 /**
+ * Scrape token usage from an agent's tmux pane output.
+ * Best-effort: returns 'unknown' if parsing fails.
+ *
+ * Claude Code patterns: "NNk tokens", "NN,NNN tokens", "NNN tokens"
+ * Codex patterns: "NN% left", "NNk tokens"
+ */
+export async function getAgentTokenUsage(sessionName: string): Promise<string> {
+  try {
+    const runtime = getRuntime()
+    const output = await runtime.capturePane(sessionName, 100)
+
+    // Claude Code: "123k tokens" or "12,345 tokens" or "1.2k tokens"
+    const claudeKMatch = output.match(/(\d+(?:\.\d+)?k)\s*tokens/i)
+    if (claudeKMatch) return `~${claudeKMatch[1]} tokens`
+
+    const claudeFullMatch = output.match(/([\d,]+)\s*tokens/i)
+    if (claudeFullMatch) return `~${claudeFullMatch[1]} tokens`
+
+    // Codex: "NN% left"
+    const codexPctMatch = output.match(/(\d+)%\s*left/i)
+    if (codexPctMatch) return `${codexPctMatch[1]}% budget left`
+
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
  * Check if a remote session exists and is ready
  */
 export async function isRemoteSessionReady(hostUrl: string, sessionName: string): Promise<boolean> {

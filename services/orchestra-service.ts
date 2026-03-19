@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
-import type { OrchestraTeam, OrchestraMessage, CreateTeamRequest } from '../types/orchestra'
+import type { OrchestraTeam, OrchestraMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/orchestra'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
   appendMessage, getMessages,
@@ -14,11 +14,23 @@ import {
   spawnLocalAgent, killLocalAgent,
   spawnRemoteAgent as spawnRemote, killRemoteAgent,
   postRemoteSessionCommand, isRemoteSessionReady,
+  getAgentTokenUsage,
 } from '../lib/agent-spawner'
 import { isSelf, getHostById, getSelfHostId } from '../lib/hosts-config'
 import { getRuntime } from '../lib/agent-runtime'
 import { resolveAgentProgram } from '../lib/agent-config'
+import {
+  collabPromptFile, collabDeliveryFile, collabSummaryFile,
+  collabRuntimeDir, collabFinishedMarker, collabBridgePosted,
+  collabBridgeResult, ensureCollabDirs,
+} from '../lib/collab-paths'
 import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
+import { spawn } from 'child_process'
+import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 interface ServiceResult<T> {
   data?: T
@@ -35,6 +47,8 @@ const COMPLETION_PATTERNS = [
   /\bklaar\b/i,
   /\btot de volgende\b/i,
 ]
+const TELEGRAM_BOT_TOKEN = '***REDACTED***:AAEnd0GTwLhMXVacFFfLCaNniVh_JmdoB4U'
+const TELEGRAM_CHAT_ID = '***REDACTED***'
 
 class OrchestraService {
   private readonly disbandingTeams = new Set<string>()
@@ -71,7 +85,7 @@ class OrchestraService {
           timestamp: new Date().toISOString(),
         })
 
-        writeDisbandSummary(team.id)
+        await writeDisbandSummary(team.id)
         await disbandTeam(team.id)
       } catch (err) {
         console.error(`[Orchestra] Auto-disband failed for ${team.id}:`, err)
@@ -116,6 +130,58 @@ class OrchestraService {
 
 const orchestraService = new OrchestraService()
 
+function formatDuration(durationMs: number): string {
+  const durationMin = Math.max(0, Math.round(durationMs / 60000))
+  return durationMin >= 60
+    ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
+    : `${durationMin}m`
+}
+
+function summarizeForTelegram(summaryPart: string): string {
+  return summaryPart
+    .replace(/\s+/g, ' ')
+    .replace(/\s*:\s*/g, ': ')
+    .trim()
+    .slice(0, 280)
+}
+
+function sendTelegramSummary(params: {
+  teamName: string
+  task: string
+  duration: string
+  messageCount: number
+  summaryParts: string[]
+}): void {
+  const text = [
+    `Team: ${params.teamName}`,
+    `Taak: ${params.task.slice(0, 100) || 'unknown'}`,
+    `Duur: ${params.duration}`,
+    `Berichten: ${params.messageCount}`,
+    '',
+    ...params.summaryParts.map(part => summarizeForTelegram(part)),
+  ].join('\n')
+
+  const curl = spawn(
+    'curl',
+    [
+      '-sS',
+      '-X', 'POST',
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
+      '--data-urlencode', `chat_id=${TELEGRAM_CHAT_ID}`,
+      '--data-urlencode', `text=${text}`,
+    ],
+    {
+      detached: true,
+      stdio: 'ignore',
+    },
+  )
+
+  curl.on('error', err => {
+    console.error('[Orchestra] Failed to start Telegram notification:', err)
+  })
+  curl.unref()
+}
+
 async function routeToHost(_program: string, preferredHostId?: string): Promise<string> {
   if (preferredHostId) {
     const host = getHostById(preferredHostId)
@@ -125,27 +191,129 @@ async function routeToHost(_program: string, preferredHostId?: string): Promise<
   return getSelfHostId()
 }
 
+export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['templates'][string] | undefined {
+  if (!templateName) return undefined
+  try {
+    const templatesPath = path.join(__dirname, '..', 'collab-templates.json')
+    const raw = fs.readFileSync(templatesPath, 'utf-8')
+    const data: CollabTemplatesFile = JSON.parse(raw)
+    const template = data.templates[templateName]
+    if (!template) {
+      console.warn(`[Orchestra] Unknown template "${templateName}", falling back to default roles`)
+      return undefined
+    }
+    console.log(`[Orchestra] Loaded template "${templateName}" (${template.name})`)
+    return template
+  } catch (err) {
+    console.warn(`[Orchestra] Failed to load templates:`, err)
+    return undefined
+  }
+}
+
+export function buildPromptPreview(params: {
+  teamId: string
+  teamName: string
+  description: string
+  agentName: string
+  teammateNames: string[]
+  agentIndex: number
+  templateName?: string
+}): string {
+  const template = loadCollabTemplate(params.templateName)
+  const teamSayCmd = `/usr/local/bin/team-say ${params.teamId} ${params.agentName} ${params.teammateNames[0] || 'team'}`
+  const teamReadCmd = `/usr/local/bin/team-read ${params.teamId}`
+
+  let roleInstructions: string[]
+
+  if (template && params.agentIndex < template.roles.length) {
+    const templateRole = template.roles[params.agentIndex]
+    roleInstructions = [
+      `ROLE: ${templateRole.role}.`,
+      templateRole.focus,
+    ]
+  } else {
+    const isLead = params.agentIndex === 0
+    const roleName = isLead ? 'LEAD' : 'WORKER'
+    roleInstructions = isLead
+      ? [
+          `ROLE: ${roleName}.`,
+          `You own architecture, planning, high-level design, task breakdown, and code review.`,
+          `Your first action after greeting is to share a concrete implementation plan with the worker before any implementation starts.`,
+          `Keep the worker focused by delegating clear implementation steps, reviewing progress, and calling out risks or design corrections early.`,
+        ]
+      : [
+          `ROLE: ${roleName}.`,
+          `You own implementation, writing code, running tests, and reporting concrete execution progress.`,
+          `After greeting, wait for the lead's plan before starting implementation work.`,
+          `Once the lead shares a plan, execute it pragmatically, report what you changed, and surface blockers or test failures quickly.`,
+        ]
+  }
+
+  return [
+    `You are ${params.agentName} in team "${params.teamName}" with teammate ${params.teammateNames.join(', ')}.`,
+    `Task: ${params.description}`,
+    ...roleInstructions,
+    `COMMUNICATION RULES:`,
+    `1. Send findings: ${teamSayCmd} "your message"`,
+    `2. Read teammate messages: ${teamReadCmd}`,
+    `3. After EVERY analysis step, run team-say to share what you found`,
+    `4. After EVERY team-say, run team-read to check for responses`,
+    `5. If teammate shared findings, RESPOND to them`,
+    `6. Keep alternating: analyze, share, read, respond, analyze`,
+    `Start NOW: greet your teammate with team-say, then begin.`,
+  ].join(' ')
+}
+
 export async function createOrchestraTeam(
   request: CreateTeamRequest
 ): Promise<ServiceResult<{ team: OrchestraTeam }>> {
   const team = createTeam(request)
   const cwd = request.workingDirectory || process.cwd()
+  const worktreeMap = new Map<string, WorktreeInfo>()
 
-  const buildPrompt = (agentName: string, otherNames: string[]) => {
-    const teamSayCmd = `/usr/local/bin/team-say ${team.id} ${agentName} ${otherNames[0] || 'team'}`
-    const teamReadCmd = `/usr/local/bin/team-read ${team.id}`
-    return [
-      `You are ${agentName} in team "${team.name}" with teammate ${otherNames.join(', ')}.`,
-      `Task: ${team.description}`,
-      `COMMUNICATION RULES:`,
-      `1. Send findings: ${teamSayCmd} "your message"`,
-      `2. Read teammate messages: ${teamReadCmd}`,
-      `3. After EVERY analysis step, run team-say to share what you found`,
-      `4. After EVERY team-say, run team-read to check for responses`,
-      `5. If teammate shared findings, RESPOND to them`,
-      `6. Keep alternating: analyze, share, read, respond, analyze`,
-      `Start NOW: greet your teammate with team-say, then begin.`,
-    ].join(' ')
+  // Phase 0: Create worktrees for local agents if requested
+  if (request.useWorktrees) {
+    for (let i = 0; i < team.agents.length; i++) {
+      const agentSpec = team.agents[i]
+      const hostId = request.agents[i].hostId
+        ? (getHostById(request.agents[i].hostId!) ? request.agents[i].hostId! : getSelfHostId())
+        : getSelfHostId()
+
+      // Only create worktrees for local agents
+      if (isSelf(hostId)) {
+        try {
+          const worktreeInfo = await createWorktree(team.id, agentSpec.name, cwd)
+          worktreeMap.set(agentSpec.name, worktreeInfo)
+          team.agents[i].worktreePath = worktreeInfo.path
+          team.agents[i].worktreeBranch = worktreeInfo.branch
+          appendMessage(team.id, {
+            id: uuidv4(), teamId: team.id, from: 'orchestra', to: 'team',
+            content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
+            type: 'chat', timestamp: new Date().toISOString(),
+          })
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error(`[Orchestra] Failed to create worktree for ${agentSpec.name}:`, message)
+          appendMessage(team.id, {
+            id: uuidv4(), teamId: team.id, from: 'orchestra', to: 'team',
+            content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
+            type: 'chat', timestamp: new Date().toISOString(),
+          })
+        }
+      }
+    }
+  }
+
+  const buildPrompt = (agentName: string, otherNames: string[], agentIndex: number) => {
+    return buildPromptPreview({
+      teamId: team.id,
+      teamName: team.name,
+      description: team.description,
+      agentName,
+      teammateNames: otherNames,
+      agentIndex,
+      templateName: request.templateName,
+    })
   }
 
   // Phase 1: Spawn all agents
@@ -153,20 +321,23 @@ export async function createOrchestraTeam(
     const agentSpec = team.agents[i]
     const hostId = await routeToHost(agentSpec.program, request.agents[i].hostId)
     const agentName = `${team.name}-${agentSpec.name}`
-    const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name))
+    const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name), i)
 
-    const promptFile = `/tmp/orchestra-prompt-${agentName}.txt`
+    ensureCollabDirs(team.id)
+    const promptFile = collabPromptFile(team.id, agentSpec.name)
     fs.writeFileSync(promptFile, prompt)
+    console.log(`[Orchestra] Prompt for ${agentSpec.name}: ${prompt}`)
 
     try {
       let agentId: string
       console.log(`[Orchestra] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
 
       if (isSelf(hostId)) {
+        const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
         const spawned = await spawnLocalAgent({
           name: agentName,
           program: agentSpec.program,
-          workingDirectory: cwd,
+          workingDirectory: agentCwd,
           hostId,
         })
         agentId = spawned.id
@@ -267,7 +438,7 @@ export async function createOrchestraTeam(
     console.log(`[Orchestra] All ${ready.length} agents ready — injecting prompts simultaneously`)
     await Promise.all(
       ready.map(async ({ agent, sessionName }) => {
-        const promptFile = `/tmp/orchestra-prompt-${sessionName}.txt`
+        const promptFile = collabPromptFile(team.id, agent.name)
         try {
           if (agent.hostId && !isSelf(agent.hostId)) {
             const host = getHostById(agent.hostId)
@@ -329,13 +500,14 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
 
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
+  existingId?: string, existingTimestamp?: string,
 ): Promise<ServiceResult<{ message: OrchestraMessage }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
   const message: OrchestraMessage = {
-    id: uuidv4(), teamId, from: from || 'user', to, content,
-    type: 'chat', timestamp: new Date().toISOString(),
+    id: existingId || uuidv4(), teamId, from: from || 'user', to, content,
+    type: 'chat', timestamp: existingTimestamp || new Date().toISOString(),
   }
   appendMessage(teamId, message)
 
@@ -362,7 +534,8 @@ export async function sendTeamMessage(
       } else {
         const agentCfg = resolveAgentProgram(targetAgent.program)
         if (agentCfg.inputMethod === 'pasteFromFile') {
-          const tmpFile = `/tmp/orchestra-delivery-${sessionName}.txt`
+          const tmpFile = collabDeliveryFile(teamId, sessionName)
+          fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
           fs.writeFileSync(tmpFile, deliveryText)
           await runtime.pasteFromFile(sessionName, tmpFile)
         } else {
@@ -387,7 +560,7 @@ export async function sendTeamMessage(
  * picked up by the background watcher in the Claude Code session.
  * Mirrors the format from cli/monitor.ts disbandTeam().
  */
-export function writeDisbandSummary(teamId: string): void {
+export async function writeDisbandSummary(teamId: string): Promise<void> {
   const team = getTeam(teamId)
   if (!team) return
 
@@ -398,20 +571,31 @@ export function writeDisbandSummary(teamId: string): void {
   const now = new Date()
   const createdAt = new Date(team.createdAt)
   const durationMs = now.getTime() - createdAt.getTime()
-  const durationMin = Math.round(durationMs / 60000)
-  const duration = durationMin >= 60
-    ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
-    : `${durationMin}m`
+  const duration = formatDuration(durationMs)
 
   const agents = [...new Set(agentMsgs.map(m => m.from))]
+
+  // Scrape token usage from each agent's tmux pane (best-effort)
+  const tokenUsageMap: Record<string, string> = {}
+  await Promise.all(
+    team.agents
+      .filter(a => a.status === 'active')
+      .map(async (agent) => {
+        const sessionName = `${team.name}-${agent.name}`
+        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName)
+      })
+  )
+
   const summaryText = agents.map(agent => {
     const msgs = agentMsgs.filter(m => m.from === agent)
     const first = msgs[0]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
     const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/orchestra-msgs/g, '').trim() || ''
-    return `${agent} (${msgs.length} msgs):\n  Start: ${first.slice(0, 300)}\n  Eind: ${last.slice(0, 500)}`
+    const tokens = tokenUsageMap[agent] || 'unknown'
+    return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first.slice(0, 300)}\n  Eind: ${last.slice(0, 500)}`
   }).join('\n\n')
 
-  const summaryFile = `/tmp/collab-summary-${teamId}.txt`
+  const summaryFile = collabSummaryFile(teamId)
+  fs.mkdirSync(path.dirname(summaryFile), { recursive: true })
   fs.writeFileSync(
     summaryFile,
     `Task: ${team.description || 'unknown'}\nDuration: ${duration}\nMessages: ${agentMsgs.length}\n\n${summaryText}`,
@@ -422,6 +606,58 @@ export function writeDisbandSummary(teamId: string): void {
 export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team: OrchestraTeam }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
+
+  // Scrape token usage BEFORE killing sessions (tmux panes disappear on kill)
+  const tokenUsageMap: Record<string, string> = {}
+  await Promise.all(
+    team.agents
+      .filter(a => a.status === 'active')
+      .map(async (agent) => {
+        const sessionName = `${team.name}-${agent.name}`
+        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName)
+      })
+  )
+
+  // Merge worktrees BEFORE killing sessions (agents may still be writing)
+  // Only local agents have worktrees; derive basePath from worktree parent dir
+  const agentsWithWorktrees = team.agents.filter(
+    a => a.worktreePath && a.worktreeBranch && (!a.hostId || isSelf(a.hostId))
+  )
+  if (agentsWithWorktrees.length > 0) {
+    // Derive the base repo path from the worktree path (parent of .worktrees/)
+    const firstWorktree = agentsWithWorktrees[0].worktreePath!
+    const worktreesDir = path.dirname(firstWorktree)
+    const basePath = path.dirname(worktreesDir) // goes up from .worktrees/
+    const mergeResults: Array<{ agent: string; success: boolean; conflicts?: string[] }> = []
+
+    for (const agent of agentsWithWorktrees) {
+      const worktreeInfo: WorktreeInfo = {
+        path: agent.worktreePath!,
+        branch: agent.worktreeBranch!,
+        agentName: agent.name,
+      }
+      const result = await mergeWorktree(worktreeInfo, basePath)
+      mergeResults.push({ agent: agent.name, ...result })
+
+      appendMessage(teamId, {
+        id: uuidv4(), teamId, from: 'orchestra', to: 'team',
+        content: result.success
+          ? `🌳 Merged ${agent.name}'s worktree (${agent.worktreeBranch})`
+          : `⚠️ Merge conflict for ${agent.name}: ${result.conflicts?.join(', ')}`,
+        type: 'chat', timestamp: new Date().toISOString(),
+      })
+    }
+
+    // Cleanup worktrees after merge
+    for (const agent of agentsWithWorktrees) {
+      const worktreeInfo: WorktreeInfo = {
+        path: agent.worktreePath!,
+        branch: agent.worktreeBranch!,
+        agentName: agent.name,
+      }
+      await destroyWorktree(worktreeInfo, basePath)
+    }
+  }
 
   for (const agent of team.agents) {
     if (agent.status === 'active') {
@@ -447,22 +683,42 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
     completedAt: new Date().toISOString(),
   })
 
+  // Soft cleanup: remove ephemeral files, keep messages/summary/log, write .finished marker
+  try {
+    const deliveryDir = path.join(collabRuntimeDir(teamId), 'delivery')
+    if (fs.existsSync(deliveryDir)) fs.rmSync(deliveryDir, { recursive: true, force: true })
+    for (const f of [collabBridgeResult(teamId), collabBridgePosted(teamId)]) {
+      if (fs.existsSync(f)) fs.unlinkSync(f)
+    }
+    fs.writeFileSync(collabFinishedMarker(teamId), new Date().toISOString())
+  } catch { /* non-fatal cleanup */ }
+
   // Optional: save session summary to claude-mem
   try {
     const messages = getMessages(teamId)
     const agentMessages = messages.filter(m => m.from !== 'orchestra' && m.from !== 'user')
     if (agentMessages.length > 0) {
-      const duration = updated!.completedAt && team.createdAt
-        ? Math.round((new Date(updated!.completedAt).getTime() - new Date(team.createdAt).getTime()) / 60000)
+      const durationMs = updated!.completedAt && team.createdAt
+        ? new Date(updated!.completedAt).getTime() - new Date(team.createdAt).getTime()
         : 0
+      const duration = formatDuration(durationMs)
 
-      // Build a concise summary: first message (plan) + last 2 messages (conclusion) per agent
+      // Build a concise summary with token usage
       const agents = [...new Set(agentMessages.map(m => m.from))]
       const summaryParts = agents.map(agent => {
         const msgs = agentMessages.filter(m => m.from === agent)
         const first = msgs[0]?.content.slice(0, 300) || ''
         const last = msgs[msgs.length - 1]?.content.slice(0, 500) || ''
-        return `${agent} (${msgs.length} msgs):\n  Start: ${first}\n  Eind: ${last}`
+        const tokens = tokenUsageMap[agent] || 'unknown'
+        return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first}\n  Eind: ${last}`
+      })
+
+      sendTelegramSummary({
+        teamName: team.name,
+        task: team.description || 'unknown',
+        duration,
+        messageCount: agentMessages.length,
+        summaryParts,
       })
 
       // Detect the working directory as project hint
@@ -476,9 +732,9 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `Collab: ${team.description.slice(0, 80)}`,
-          subtitle: `${agents.join(' + ')} — ${duration}min, ${agentMessages.length} messages`,
+          subtitle: `${agents.join(' + ')} — ${duration}, ${agentMessages.length} messages`,
           type: 'discovery',
-          narrative: `Team "${team.name}" (${duration}min):\nTask: ${team.description.slice(0, 200)}\n\n${summaryParts.join('\n\n')}`,
+          narrative: `Team "${team.name}" (${duration}):\nTask: ${team.description.slice(0, 200)}\n\n${summaryParts.join('\n\n')}`,
           project,
         }),
       }).catch(() => {})
