@@ -77,7 +77,7 @@ Open a terminal and keep it running:
 npm run dev
 ```
 
-You should see no output — the server runs silently on `http://localhost:23000`.
+You should see: `[Ensemble] Server running on http://127.0.0.1:23000`
 
 ### 3. Verify (in a second terminal)
 

@@ -8,7 +8,7 @@ title: Home
 
 **Multi-agent collaboration engine** — AI agents that work as one.
 
-Ensemble orchestrates multiple AI agents (Claude Code, Codex, Aider, Gemini) into collaborative teams that communicate, share findings, and solve problems together in real time.
+Ensemble orchestrates multiple AI agents (Claude Code, Codex, Aider) into collaborative teams that communicate, share findings, and solve problems together in real time.
 
 > **Status:** Experimental developer tool. Not a production framework (yet).
 

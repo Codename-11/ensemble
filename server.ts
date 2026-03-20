@@ -10,7 +10,7 @@ import {
 } from './services/ensemble-service'
 
 const PORT = parseInt(process.env.ENSEMBLE_PORT || process.env.ORCHESTRA_PORT || '23000', 10)
-const HOST = '127.0.0.1'
+const HOST = process.env.ENSEMBLE_HOST || '0.0.0.0'
 const RATE_LIMIT_WINDOW_MS = 60_000
 const RATE_LIMIT_MAX_REQUESTS = 100
 const DEFAULT_CORS_ORIGIN_PATTERNS = [

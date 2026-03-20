@@ -101,35 +101,16 @@ The agent must support `team-say` and `team-read` shell commands in its PATH for
 
 ## Collab templates (collab-templates.json)
 
-Pre-defined team configurations for common tasks:
+Pre-defined team configurations for common tasks. Each template assigns specialized roles to the agents:
 
-```json
-{
-  "review": {
-    "description": "Code Review",
-    "agents": [
-      { "program": "codex", "role": "lead" },
-      { "program": "claude", "role": "worker" }
-    ]
-  },
-  "implement": {
-    "description": "Implementation",
-    "agents": [
-      { "program": "claude", "role": "lead" },
-      { "program": "codex", "role": "worker" }
-    ]
-  },
-  "debug": {
-    "description": "Debug",
-    "agents": [
-      { "program": "codex", "role": "lead" },
-      { "program": "claude", "role": "worker" }
-    ]
-  }
-}
-```
+| Template | Description | Roles |
+|---|---|---|
+| `review` | Code Review | Reviewer + Critic |
+| `implement` | Implementation | Architect + Developer |
+| `research` | Research | Researcher-A + Researcher-B |
+| `debug` | Debug | Reproducer + Analyst |
 
-Use via API: `"templateName": "review"` in the create team request.
+Use via API: `"templateName": "review"` in the create team request. The template assigns roles and focus areas automatically.
 
 ---
 

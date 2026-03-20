@@ -145,8 +145,8 @@ Shows: team name, status (active/finished/stale), message count, last message, d
 Low-level agent communication. Used internally by agents during collaboration.
 
 ```bash
-# Agent sends a message
-./scripts/team-say.sh <team-id> <agent-name> <message>
+# Agent sends a message (from agent, to recipient)
+./scripts/team-say.sh <team-id> <from> <to> "message"
 
 # Agent reads messages
 ./scripts/team-read.sh <team-id>
