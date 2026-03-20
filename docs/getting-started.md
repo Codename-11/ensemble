@@ -13,11 +13,11 @@ title: Getting Started
 | **Node.js 18+** | Runtime for the ensemble server |
 | **tmux** | Agent sessions run in tmux panes |
 | **Python 3.6+** | Used by collab scripts for message parsing |
-| **curl** | Used in examples to interact with the API |
-| **macOS or Linux** | `tmux` and shell scripts require a Unix environment |
+| **curl** | Used in scripts and examples |
+| **macOS or Linux** | tmux and shell scripts require a Unix environment |
 | **At least one AI agent CLI** | e.g. `claude`, `codex`, `aider`, `gemini` |
 
-> Ensemble relies on `tmux` sessions and Unix shell scripts. It runs on macOS and Linux only. Windows, including WSL, is not tested or supported.
+> **Platform support:** Ensemble runs on macOS and Linux only. Windows (including WSL) is not tested or supported.
 
 ### Install tmux
 
@@ -34,36 +34,34 @@ tmux -V
 
 ### Install AI agent CLIs
 
-Ensemble supports any CLI-based AI agent. The most common:
+Ensemble supports any CLI-based AI agent. You need at least one installed:
 
 ```bash
-# Claude Code (Anthropic)
+# Claude Code (Anthropic) — recommended
 npm install -g @anthropic-ai/claude-code
 
 # Codex (OpenAI)
 npm install -g @openai/codex
 
-# Aider
+# Aider (Python-based)
 pip install aider-chat
-
-# Gemini CLI
-npm install -g @anthropic-ai/gemini  # or your preferred method
 ```
 
-You need **API keys** for your agents — each agent CLI handles its own authentication:
+Each agent CLI manages its own API keys. Make sure they're configured in your shell:
 
 | Agent | Auth setup |
 |---|---|
-| **Claude Code** | `claude auth login` or set `ANTHROPIC_API_KEY` |
+| **Claude Code** | Run `claude auth login` or set `ANTHROPIC_API_KEY` |
 | **Codex** | Set `OPENAI_API_KEY` in your environment |
 | **Aider** | Set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` |
-| **Gemini** | Set `GOOGLE_API_KEY` or use `gcloud auth` |
 
-Ensemble doesn't manage agent API keys — it spawns agents as CLI processes, and each agent uses whatever credentials you've configured in your shell environment.
+> **Tip:** Test that your agent CLI works standalone before using it with ensemble. For example, run `claude --version` or `codex --version` to verify installation.
 
 ---
 
 ## Install & Run
+
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/michelhelsdingen/ensemble.git
@@ -71,24 +69,46 @@ cd ensemble
 npm install
 ```
 
-### Start the server
+### 2. Start the server
+
+Open a terminal and keep it running:
 
 ```bash
 npm run dev
 ```
 
-The server starts on `http://localhost:23000`. Verify:
+You should see no output — the server runs silently on `http://localhost:23000`.
+
+### 3. Verify (in a second terminal)
 
 ```bash
 curl http://localhost:23000/api/v1/health
-# → {"status":"healthy","version":"1.0.0"}
 ```
+
+Expected response:
+```json
+{"status":"healthy","version":"1.0.0"}
+```
+
+> **Troubleshooting:** If you get "Connection refused", make sure `npm run dev` is still running in your other terminal. If port 23000 is in use, you'll see a clear error message suggesting you check for other ensemble instances.
 
 ---
 
 ## Your first team
 
-### Option 1: Via API
+### Option 1: Via the CLI (easiest)
+
+```bash
+# Check server status
+npx ensemble status
+
+# List teams (empty at first)
+npx ensemble teams
+```
+
+### Option 2: Via API (curl)
+
+Create a team with two agents reviewing your project:
 
 ```bash
 curl -X POST http://localhost:23000/api/ensemble/teams \
@@ -100,56 +120,91 @@ curl -X POST http://localhost:23000/api/ensemble/teams \
       { "program": "claude", "role": "lead" },
       { "program": "codex", "role": "worker" }
     ],
-    "workingDirectory": "/path/to/your/project"
+    "workingDirectory": "'$(pwd)'"
   }'
 ```
 
-### Option 2: Via collab script (Claude Code integration)
+> **Note:** Replace `$(pwd)` with the path to the project you want the agents to work on.
 
-If you use Claude Code, the collab script wraps everything:
+The response includes the team `id` — you'll need it for the next steps.
+
+### Option 3: Via collab script (Claude Code integration)
+
+If you use Claude Code, the collab script wraps everything into one command:
 
 ```bash
 ./scripts/collab-launch.sh "$(pwd)" "Review the README and suggest improvements"
 ```
 
-This creates a team, starts a bridge, opens a monitor, and begins the collaboration.
+This creates a team, starts the bridge, opens a TUI monitor, and begins the collaboration automatically.
 
 ### Watch it live
 
 ```bash
-# TUI monitor (if team ID is abc-123)
-npx tsx cli/monitor.ts abc-123
+# Open the TUI monitor (replace <team-id> with your actual team ID)
+npx ensemble monitor <team-id>
+
+# Or monitor the most recent team
+npx ensemble monitor --latest
 
 # Or attach to the tmux monitor session
-tmux attach -t ensemble-abc-123
+tmux attach -t ensemble-<team-id>
 ```
 
 ### Monitor keybindings
 
 | Key | Action |
 |---|---|
-| `s` | Steer entire team |
-| `1`/`2` | Steer specific agent |
+| `s` | Steer entire team (send a message) |
+| `1`/`2` | Steer specific agent by number |
 | `j`/`k` | Scroll message history |
-| `d` | Disband team |
+| `d` | Disband team (stop and summarize) |
 | `q` | Quit monitor |
+
+### Steer and disband
+
+```bash
+# Send a steering message to redirect the team
+npx ensemble steer <team-id> "Focus on the auth module instead"
+
+# Or via API
+curl -X POST http://localhost:23000/api/ensemble/teams/<team-id> \
+  -H "Content-Type: application/json" \
+  -d '{"from": "user", "to": "team", "content": "Focus on the auth module"}'
+
+# Disband (stop the team and get a summary)
+curl -X DELETE http://localhost:23000/api/ensemble/teams/<team-id>
+```
 
 ---
 
 ## What happens under the hood
 
 1. **Server receives team request** — validates agents, creates team record
-2. **Agents spawn** — each gets a tmux session with the task prompt
-3. **Communication** — agents use `team-say`/`team-read` shell commands
-4. **Bridge** — the ensemble-bridge polls for new messages and delivers them
+2. **Agents spawn** — each gets its own tmux session with the task prompt
+3. **Communication** — agents use `team-say`/`team-read` scripts to exchange messages
+4. **Bridge** — the ensemble-bridge polls for new messages and delivers them between agents
 5. **Monitor** — TUI shows the conversation in real time
-6. **Auto-disband** — when agents signal completion, the team wraps up
-7. **Summary** — final results are persisted and optionally sent via Telegram
+6. **Auto-disband** — when agents signal completion, the team wraps up automatically
+7. **Summary** — results are persisted and optionally sent via Telegram
+
+---
+
+## Common issues
+
+| Problem | Solution |
+|---|---|
+| "Connection refused" on curl | Make sure `npm run dev` is running in another terminal |
+| "Port 23000 already in use" | Another ensemble server is running. Stop it or use a different port via `ENSEMBLE_PORT` |
+| Agent doesn't respond | Check that the agent CLI is installed and API keys are set |
+| "command not found: tmux" | Install tmux (see prerequisites above) |
 
 ---
 
 ## Next steps
 
-- [Configuration](configuration) — customize agents, ports, hosts
-- [API Reference](api) — all HTTP endpoints
-- [Collab Scripts](collab-scripts) — shell integration for Claude Code
+- [Configuration](configuration) — customize agents, ports, hosts, Telegram notifications
+- [API Reference](api) — all HTTP endpoints with examples
+- [CLI Reference](cli) — command line usage and monitor keybindings
+- [Collab Scripts](collab-scripts) — shell scripts for Claude Code integration
+- [Architecture](architecture) — how it all fits together

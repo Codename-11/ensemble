@@ -2,27 +2,27 @@
 
 **Multi-agent collaboration engine** — AI agents that work as one.
 
-Ensemble orchestrates multiple AI agents (Claude Code, Codex, etc.) into collaborative teams that communicate, share findings, and solve problems together in real time. Built on tmux-based session management for transparent, observable agent interactions.
+Ensemble orchestrates multiple AI agents (Claude Code, Codex, Aider) into collaborative teams that communicate, share findings, and solve problems together in real time. Built on tmux-based session management for transparent, observable agent interactions.
 
-> **Status:** Experimental developer tool. Not a production framework (yet).
+> **Status:** Experimental developer tool. macOS and Linux only.
 
 ## Features
 
-- **Team orchestration** — Spawn multi-agent teams with a single API call
+- **Team orchestration** — Spawn multi-agent teams with a single command
 - **Real-time messaging** — Agents communicate via a structured message bus
 - **TUI monitor** — Watch agent collaboration live from your terminal
+- **Auto-disband** — Intelligent completion detection ends teams when work is done
 - **Multi-host support** — Run agents across local and remote machines
-- **Runtime abstraction** — Pluggable agent runtimes (tmux today, Docker/API later)
 - **CLI & HTTP API** — Full control via command line or REST endpoints
+
+**[Full documentation →](https://michelhelsdingen.github.io/ensemble/)**
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 18+
-- [tmux](https://github.com/tmux/tmux) installed
-- Python 3.6+ (used by collab scripts)
-- At least one AI agent CLI available (e.g., `claude`, `codex`)
+- Node.js 18+, Python 3.6+, [tmux](https://github.com/tmux/tmux), curl
+- At least one AI agent CLI installed (`claude`, `codex`, or `aider`)
 
 ### Install & Run
 
@@ -30,99 +30,79 @@ Ensemble orchestrates multiple AI agents (Claude Code, Codex, etc.) into collabo
 git clone https://github.com/michelhelsdingen/ensemble.git
 cd ensemble
 npm install
+
+# Start the server (keep this running)
 npm run dev
 ```
 
-The server starts on `http://localhost:23000`.
-
-### CLI Usage
+### Verify (in a second terminal)
 
 ```bash
-# Check server status
-npx ensemble status
-
-# List active teams
-npx ensemble teams
-
-# Watch a team's collaboration live
-npx ensemble monitor --latest
-
-# Send a steering message to a team
-npx ensemble steer <team-id> "focus on the auth module"
+curl http://localhost:23000/api/v1/health
+# → {"status":"healthy","version":"1.0.0"}
 ```
 
-### API
+### Create your first team
 
 ```bash
-# Health check
-curl http://localhost:23000/api/v1/health
+# Via CLI
+npx ensemble status
 
-# Create a team
+# Via API — create a team of two agents
 curl -X POST http://localhost:23000/api/ensemble/teams \
   -H "Content-Type: application/json" \
   -d '{
     "name": "review-team",
     "description": "Review the authentication module",
     "agents": [
-      { "program": "claude" },
-      { "program": "codex" }
-    ]
+      { "program": "claude", "role": "lead" },
+      { "program": "codex", "role": "worker" }
+    ],
+    "workingDirectory": "'$(pwd)'"
   }'
 
-# List teams
-curl http://localhost:23000/api/ensemble/teams
+# Watch the collaboration live
+npx ensemble monitor --latest
 
-# Get team feed
-curl http://localhost:23000/api/ensemble/teams/<id>/feed
+# Steer the team
+npx ensemble steer <team-id> "focus on the auth module"
 ```
 
-## Architecture
+Or use the all-in-one collab script:
 
-```
-ensemble/
-├── server.ts              # HTTP server (API entry point)
-├── services/
-│   └── ensemble-service  # Team lifecycle & message routing
-├── lib/
-│   ├── agent-runtime      # AgentRuntime interface + TmuxRuntime
-│   ├── agent-spawner      # Local (tmux) & remote agent lifecycle
-│   ├── ensemble-registry # Team & message persistence (JSONL)
-│   └── hosts-config       # Multi-host configuration
-├── types/
-│   └── ensemble           # TypeScript type definitions
-├── cli/
-│   ├── ensemble.ts        # CLI entrypoint
-│   └── monitor.ts         # TUI monitor (live team view)
-└── scripts/
-    └── ensemble-bridge    # Shell bridge for agent communication
-```
-
-## Configuration
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `ENSEMBLE_PORT` | `23000` | Server port |
-| `ENSEMBLE_URL` | `http://localhost:23000` | CLI target URL |
-| `ENSEMBLE_DATA_DIR` | `~/.aimaestro` | Data directory for teams & messages |
-| `ENSEMBLE_HOST_ID` | `local` | Host identifier for agent spawning |
-| `ENSEMBLE_CORS_ORIGIN` | localhost only | Comma-separated allowed CORS origins |
-| `ENSEMBLE_PROJECT` | auto-detect | Project name for claude-mem summaries |
-
-### Claude Code Permission
-
-Add to `~/.claude/settings.json` → `permissions.allow`:
-```json
-"Bash(/path/to/ensemble/scripts/collab-launch.sh:*)"
+```bash
+./scripts/collab-launch.sh "$(pwd)" "Review the authentication module"
 ```
 
 ## How It Works
 
-1. **Create a team** — Define agents and their task via API or programmatically
+1. **Create a team** — Define agents and their task via API or CLI
 2. **Agents spawn** — Each agent gets a tmux session with the task prompt
-3. **Communication** — Agents use `team-say` / `team-read` shell commands to exchange messages
-4. **Orchestration** — The server routes messages, tracks status, and manages lifecycle
-5. **Monitor** — Watch the collaboration unfold in real-time via the TUI monitor
-6. **Disband** — Wrap up the team; results are summarized and persisted
+3. **Communication** — Agents use `team-say`/`team-read` scripts to exchange messages
+4. **Monitor** — Watch the collaboration unfold in real-time via the TUI monitor
+5. **Auto-disband** — When agents signal completion, results are summarized and persisted
+
+## Configuration
+
+Copy `.env.example` to `.env` and adjust as needed. Key variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENSEMBLE_PORT` | `23000` | Server port |
+| `ENSEMBLE_URL` | `http://localhost:23000` | CLI target URL |
+| `ENSEMBLE_DATA_DIR` | `~/.aimaestro` | Data directory |
+| `ENSEMBLE_CORS_ORIGIN` | localhost only | Allowed CORS origins |
+
+See [full configuration docs](https://michelhelsdingen.github.io/ensemble/configuration) for all options including Telegram notifications, multi-host setup, and agent customization.
+
+## Documentation
+
+- [Getting Started](https://michelhelsdingen.github.io/ensemble/getting-started) — Prerequisites, install, first team
+- [Configuration](https://michelhelsdingen.github.io/ensemble/configuration) — Environment variables, agents, hosts
+- [API Reference](https://michelhelsdingen.github.io/ensemble/api) — All HTTP endpoints
+- [CLI Reference](https://michelhelsdingen.github.io/ensemble/cli) — Commands and monitor keybindings
+- [Collab Scripts](https://michelhelsdingen.github.io/ensemble/collab-scripts) — Shell scripts for automation
+- [Architecture](https://michelhelsdingen.github.io/ensemble/architecture) — How it all fits together
 
 ## License
 
