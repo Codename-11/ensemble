@@ -111,6 +111,8 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   // Check communication mode: "mcp" (default) or "shell" (legacy)
   const commMode = process.env.ENSEMBLE_COMM_MODE || 'mcp'
 
+  let mcpPreCmd = '' // command to run BEFORE the agent start (e.g. codex mcp add)
+
   if (options.teamId && commMode === 'mcp') {
     const agentConfig = resolveAgentProgram(options.program)
     const mcpMode = agentConfig.mcpMode
@@ -124,15 +126,33 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
         ? options.name.substring(options.name.indexOf('-') + 1)
         : options.name
 
-      // Both Claude and Codex use --mcp-config with a JSON file
-      const mcpConfigPath = writeMcpConfig({
-        teamId: options.teamId,
-        agentName: shortName,
-        apiUrl,
-        teamDir,
-      })
-      mcpFlag = ` ${agentConfig.mcpConfigFlag || '--mcp-config'} ${mcpConfigPath}`
+      const mcpServerPath = getMcpServerPath()
+
+      if (mcpMode === 'config-file') {
+        // Claude Code: --mcp-config <json-file>
+        const mcpConfigPath = writeMcpConfig({
+          teamId: options.teamId,
+          agentName: shortName,
+          apiUrl,
+          teamDir,
+        })
+        mcpFlag = ` ${agentConfig.mcpConfigFlag || '--mcp-config'} ${mcpConfigPath}`
+      } else if (mcpMode === 'mcp-add') {
+        // Codex: register MCP server via `codex mcp add` before launching
+        const envFlags = [
+          `--env ENSEMBLE_TEAM_ID=${options.teamId}`,
+          `--env ENSEMBLE_AGENT_NAME=${shortName}`,
+          `--env ENSEMBLE_API_URL=${apiUrl}`,
+        ].join(' ')
+        mcpPreCmd = `codex mcp add ensemble ${envFlags} -- node "${mcpServerPath}"`
+      }
     }
+  }
+
+  // Send pre-command if needed (e.g. codex mcp add), then the agent start command
+  if (mcpPreCmd) {
+    await runtime.sendKeys(sessionName, mcpPreCmd, { literal: true, enter: true })
+    await new Promise(r => setTimeout(r, 1000)) // wait for mcp add to complete
   }
 
   const launchCmd = os.platform() === 'win32'

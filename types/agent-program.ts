@@ -20,10 +20,10 @@ export interface AgentProgram {
   icon: string
   /** How to pass MCP config to this agent at launch.
    *  - "config-file": pass --mcp-config <path> (Claude Code)
-   *  - "config-flag": pass -c key=value overrides (Codex)
+   *  - "mcp-add": run `<agent> mcp add` before launching (Codex)
    *  - undefined: agent doesn't support MCP */
   mcpConfigFlag?: string
-  mcpMode?: 'config-file' | 'config-flag'
+  mcpMode?: 'config-file' | 'mcp-add'
 }
 
 export interface AgentsConfig {
