@@ -7,6 +7,7 @@ import {
   WifiOff,
   Clock,
   XCircle,
+  CheckCircle2,
   PanelLeftClose,
   PanelLeft,
   FileText,
@@ -195,15 +196,32 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
               {sidebarCollapsed ? <PanelLeft className="size-4" /> : <PanelLeftClose className="size-4" />}
             </button>
 
-            {/* Disband button */}
+            {/* Team actions */}
             {!isTerminal && (
-              <button
-                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
-                onClick={() => void onDisband()}
-              >
-                <XCircle className="size-3.5" />
-                Disband
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="inline-flex items-center gap-1.5 rounded-md border border-green-500/20 px-3 py-1.5 text-xs font-medium text-green-400 transition-colors hover:bg-green-500/10"
+                  onClick={() => {
+                    fetch(`/api/ensemble/teams/${team.id}/disband`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ reason: 'completed' }),
+                    }).then(() => void onDisband()).catch(() => {})
+                  }}
+                  title="Mark as successfully completed"
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  Complete
+                </button>
+                <button
+                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                  onClick={() => void onDisband()}
+                  title="Disband team (manual stop)"
+                >
+                  <XCircle className="size-3.5" />
+                  Disband
+                </button>
+              </div>
             )}
           </div>
         </div>

@@ -483,7 +483,12 @@ const server = http.createServer(async (req, res) => {
     // Disband: /api/ensemble/teams/:id/disband
     const disbandMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
     if (disbandMatch && method === 'POST') {
-      const result = await disbandTeam(disbandMatch[1], 'manual')
+      let reason: string = 'manual'
+      try {
+        const body = JSON.parse(await readBody(req))
+        if (typeof body.reason === 'string') reason = body.reason
+      } catch { /* empty body OK — default to manual */ }
+      const result = await disbandTeam(disbandMatch[1], reason as 'completed' | 'manual' | 'error' | 'auto')
       if (result.error) return json(res, { error: result.error }, result.status, origin)
       return json(res, result.data, result.status, origin)
     }
