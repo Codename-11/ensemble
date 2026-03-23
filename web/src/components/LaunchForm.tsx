@@ -33,6 +33,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
   const [templateName, setTemplateName] = useState('')
   const [staged, setStaged] = useState(false)
   const [useWorktrees, setUseWorktrees] = useState(false)
+  const [permissionMode, setPermissionMode] = useState<string>('full')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -114,6 +115,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
 
     // Build team config from advanced settings (only include non-empty/non-zero values)
     const config: TeamConfig = {}
+    if (permissionMode && permissionMode !== 'full') config.permissionMode = permissionMode as TeamConfig['permissionMode']
     const parsedMaxTurns = parseInt(advMaxTurns, 10)
     if (parsedMaxTurns > 0) config.maxTurns = parsedMaxTurns
     const parsedTimeout = parseFloat(advTimeoutMin)
@@ -279,8 +281,25 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
           </label>
 
           <div className="flex flex-col gap-2 text-xs font-medium text-muted-foreground">
-            Launch Mode
-            <label className="flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
+            Permission Mode
+            <select
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+              value={permissionMode}
+              onChange={e => setPermissionMode(e.target.value)}
+            >
+              <option value="full">Full — read, write, execute</option>
+              <option value="plan-only">Plan Only — read + analyze, no edits</option>
+              <option value="review">Review — read + diff only, no edits</option>
+              <option value="execute">Execute — follow the plan, write code</option>
+            </select>
+            <span className="min-h-6 text-[11px] leading-relaxed text-muted-foreground/70">
+              {permissionMode === 'full' && 'Agents can read, write, and execute freely.'}
+              {permissionMode === 'plan-only' && 'Agents can only read, analyze, and discuss. No file changes.'}
+              {permissionMode === 'review' && 'Agents can only read code and git diffs. No file changes.'}
+              {permissionMode === 'execute' && 'Agents follow the plan and make changes. Full write access.'}
+            </span>
+
+            <label className="mt-2 flex items-start gap-3 rounded-lg border border-border bg-background px-3 py-3 text-sm text-foreground">
               <input
                 type="checkbox"
                 className="mt-0.5 size-4 rounded border-border bg-background text-primary"

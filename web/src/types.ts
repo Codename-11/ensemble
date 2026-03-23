@@ -1,6 +1,10 @@
 /** Mirror of backend types for the web client */
 
+export type AgentPermissionMode = 'full' | 'plan-only' | 'review' | 'execute'
+
 export interface TeamConfig {
+  /** Permission mode for agents (default: 'full') */
+  permissionMode?: AgentPermissionMode
   /** Max total messages before auto-disband (0 = unlimited) */
   maxTurns?: number
   /** Auto-disband after this many ms of total runtime (0 = unlimited) */

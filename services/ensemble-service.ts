@@ -330,6 +330,7 @@ export function buildPromptPreview(params: {
   agentIndex: number
   templateName?: string
   useMcp?: boolean
+  permissionMode?: string
 }): string {
   const template = loadCollabTemplate(params.templateName)
 
@@ -391,9 +392,37 @@ export function buildPromptPreview(params: {
         `7. Keep alternating: greet, plan, analyze, share, read, respond, analyze.`,
       ]
 
+  // Permission mode instructions
+  const permInstructions: string[] = []
+  switch (params.permissionMode) {
+    case 'plan-only':
+      permInstructions.push(
+        `PERMISSION MODE: PLAN ONLY.`,
+        `You may ONLY read, analyze, and discuss. Do NOT edit files, write code, or run mutating commands.`,
+        `Your output should be plans, analysis, and recommendations — not implementation.`,
+      )
+      break
+    case 'review':
+      permInstructions.push(
+        `PERMISSION MODE: REVIEW.`,
+        `You may ONLY read code, run git diff/log/show, and communicate findings.`,
+        `Do NOT edit files, create files, or run any mutating commands. Report issues only.`,
+      )
+      break
+    case 'execute':
+      permInstructions.push(
+        `PERMISSION MODE: EXECUTE.`,
+        `Follow the plan precisely. Write code, run tests, make changes as specified.`,
+        `Do NOT deviate from the plan without communicating the reason first.`,
+      )
+      break
+    // 'full' or undefined — no restrictions
+  }
+
   return [
     `You are ${params.agentName} in team "${params.teamName}" with teammate ${params.teammateNames.join(', ')}.`,
     `Task: ${params.description}`,
+    ...permInstructions,
     ...roleInstructions,
     ...commInstructions,
     `START NOW: Run team${params.useMcp ? '_say' : '-say'} to greet your teammate, then begin work.`,
@@ -451,6 +480,7 @@ export async function addAgentToTeam(
     teammateNames: otherNames,
     agentIndex: team.agents.length, // worker role
     useMcp: (process.env.ENSEMBLE_COMM_MODE || 'mcp') === 'mcp',
+    permissionMode: team.config?.permissionMode,
   })
 
   // Add recent message context to the prompt so the agent can catch up
@@ -471,6 +501,7 @@ export async function addAgentToTeam(
       workingDirectory: cwd,
       teamId: team.id,
       apiUrl,
+      permissionMode: team.config?.permissionMode,
     })
 
     // Build the new agent record
@@ -586,6 +617,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         agentIndex,
         templateName: request.templateName,
         useMcp: (process.env.ENSEMBLE_COMM_MODE || 'mcp') === 'mcp',
+        permissionMode: team.config?.permissionMode,
       })
     }
 
@@ -614,6 +646,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             hostId,
             teamId: team.id,
             apiUrl,
+            permissionMode: team.config?.permissionMode,
           })
           agentId = spawned.id
         } else {

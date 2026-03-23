@@ -29,6 +29,7 @@ interface SpawnAgentOptions {
   hostId?: string
   teamId?: string
   apiUrl?: string
+  permissionMode?: string
 }
 
 /** Compute tmux session name from agent name */
@@ -39,6 +40,44 @@ function computeSessionName(agentName: string): string {
 /** Resolve program name to CLI command using agents.json config */
 function resolveStartCommand(program: string): string {
   return buildAgentCommand(program)
+}
+
+/**
+ * Build permission flags for the agent CLI based on the permission mode.
+ * Returns extra CLI flags to append to the agent command.
+ */
+function buildPermissionFlags(program: string, mode: string): string {
+  const prog = program.toLowerCase()
+
+  if (mode === 'full' || !mode) return '' // default — no restrictions
+
+  if (prog.includes('claude')) {
+    switch (mode) {
+      case 'plan-only':
+        return ' --allowedTools "Read,Grep,Glob,LS,Agent,WebSearch,WebFetch"'
+      case 'review':
+        return ' --allowedTools "Read,Grep,Glob,LS,Bash(git diff:*),Bash(git log:*),Bash(git show:*)"'
+      case 'execute':
+        return '' // full permissions — execute mode means "go ahead and write"
+      default:
+        return ''
+    }
+  }
+
+  if (prog.includes('codex')) {
+    switch (mode) {
+      case 'plan-only':
+        return ' -c \'sandbox_permissions=["disk-full-read-access"]\''
+      case 'review':
+        return ' -c \'sandbox_permissions=["disk-full-read-access"]\''
+      case 'execute':
+        return '' // full permissions
+      default:
+        return ''
+    }
+  }
+
+  return '' // unknown agent — no restrictions
 }
 
 /** Absolute path to the MCP server script bundled with ensemble */
@@ -155,9 +194,11 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
     await new Promise(r => setTimeout(r, 1000)) // wait for mcp add to complete
   }
 
+  const permFlags = buildPermissionFlags(options.program, options.permissionMode || 'full')
+
   const launchCmd = os.platform() === 'win32'
-    ? `set CLAUDECODE= & ${startCommand}${mcpFlag}`
-    : `unset CLAUDECODE; ${startCommand}${mcpFlag}`
+    ? `set CLAUDECODE= & ${startCommand}${mcpFlag}${permFlags}`
+    : `unset CLAUDECODE; ${startCommand}${mcpFlag}${permFlags}`
   await runtime.sendKeys(sessionName, launchCmd, { literal: true, enter: true })
 
   console.log(`[Spawner] Agent ${options.name} started in session ${sessionName}`)
