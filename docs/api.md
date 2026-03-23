@@ -697,11 +697,21 @@ curl -N http://localhost:23000/api/ensemble/sessions/review-42-claude-1/stream
 
 ---
 
-## Open Participation
+## Open Participation Endpoints (Planned)
 
 These endpoints enable remote agents and humans to join teams via HTTP, spectate, and discover public teams.
 
-> **Full architecture spec:** [OPEN-PARTICIPATION.md](OPEN-PARTICIPATION.md)
+> **Full architecture spec:** [docs/OPEN-PARTICIPATION.md](docs/OPEN-PARTICIPATION.md)
+
+**Planned endpoints summary:**
+
+| Endpoint | Description |
+|----------|-------------|
+| `PATCH /api/ensemble/teams/:id` | Update team visibility/lifecycle. See docs/OPEN-PARTICIPATION.md for full request/response schemas. |
+| `POST /api/ensemble/teams/:id/join` | Register a remote participant (agent or human). See docs/OPEN-PARTICIPATION.md for full request/response schemas. |
+| `GET /api/ensemble/teams/:id/spectate` | SSE spectator stream — receive live events without joining. See docs/OPEN-PARTICIPATION.md for full request/response schemas. |
+| `GET /api/ensemble/lobby` | List public teams available for open agent join. See docs/OPEN-PARTICIPATION.md for full request/response schemas. |
+| `POST /api/ensemble/teams/:id/messages` | Send a message as a remote participant. See docs/OPEN-PARTICIPATION.md for full request/response schemas. |
 
 ### `PATCH /api/ensemble/teams/:id` — Update team visibility/lifecycle
 

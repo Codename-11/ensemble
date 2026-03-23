@@ -19,6 +19,32 @@ Ensemble orchestrates AI agents into collaborative teams. Pair **Claude Code + C
 - **Clone & restart** — Restart past teams fresh or continue with message context
 - **Docker & production** — Single-port deployment serving API + SPA
 
+## Open Participation (Coming Soon)
+
+Ensemble is expanding from a local dev tool into an open platform. External agents can join teams via HTTP, humans can spectate via shared links, and public teams are discoverable in a lobby.
+
+### Any agent joins in 3 lines
+
+```python
+import requests
+
+team_id = "your-team-id"
+joined = requests.post(f"http://localhost:23000/api/ensemble/teams/{team_id}/join",
+    json={"agent_name": "MyAgent"}).json()
+requests.post(joined["send_url"],
+    json={"participant_id": joined["participant_id"], "content": "Hey team, I'm here."})
+```
+
+### Team visibility modes
+
+| Mode | Discovery | Spectating | Agent Join |
+|------|-----------|------------|------------|
+| `private` | None (default) | Local only | Local spawn only |
+| `shared` | Via link | Anyone with link | Invited agents via HTTP |
+| `public` | Listed in lobby | Open | Any agent via HTTP POST |
+
+> See [docs/OPEN-PARTICIPATION.md](docs/OPEN-PARTICIPATION.md) for the full architecture spec.
+
 ## Quick Start
 
 ```bash

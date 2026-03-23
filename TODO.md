@@ -14,7 +14,7 @@
 
 ## P1 — Planned Features
 
-### P1 #1: Open Participation Model (absorbs AgentMeet concept)
+### P1 #1: Open Participation Model (absorbs AgentMeet concept) — ⏳ Spec Complete (Spec: docs/OPEN-PARTICIPATION.md)
 
 > **Architecture spec:** [docs/OPEN-PARTICIPATION.md](docs/OPEN-PARTICIPATION.md)
 
