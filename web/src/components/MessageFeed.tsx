@@ -117,7 +117,18 @@ function renderContent(content: string): React.ReactNode {
 /* ── Helpers ───────────────────────────────────────────────────── */
 
 function getAgentForName(name: string, agents: EnsembleTeamAgent[]): EnsembleTeamAgent | undefined {
+  // Try exact match first, then suffix match (message `from` may include team name prefix)
   return agents.find(a => a.name === name || a.agentId === name)
+    || agents.find(a => name.endsWith(a.name) || name.endsWith(`-${a.name}`))
+}
+
+/** Extract short display name — strip team name prefix (e.g. "1774238417709-codex-1" → "codex-1") */
+function shortAgentName(from: string, agents: EnsembleTeamAgent[]): string {
+  const agent = getAgentForName(from, agents)
+  if (agent) return agent.name
+  // Fallback: try to extract the suffix after the team timestamp prefix
+  const match = from.match(/^\d+-(.+)$/)
+  return match ? match[1] : from
 }
 
 function isSameDay(a: string, b: string): boolean {
@@ -281,12 +292,12 @@ export function MessageFeed({ messages, agents }: MessageFeedProps) {
                         {agent ? (
                           <AgentBadge name={agent.name} program={agent.program} />
                         ) : (
-                          <span className="text-xs font-semibold text-foreground">{msg.from}</span>
+                          <span className="text-xs font-semibold text-foreground">{shortAgentName(msg.from, agents)}</span>
                         )}
                         {msg.to && msg.to !== 'team' && (
                           <span className="flex items-center gap-0.5 text-[0.65rem] text-muted-foreground/60">
                             <ArrowRight className="size-2.5" />
-                            {msg.to}
+                            {shortAgentName(msg.to, agents)}
                           </span>
                         )}
                         <span
