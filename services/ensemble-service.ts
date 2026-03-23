@@ -1207,7 +1207,87 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
     }
   } catch { /* non-fatal */ }
 
+  // Auto-generate AI summary in the background (non-blocking)
+  if (process.env.ENSEMBLE_AUTO_SUMMARY !== 'false') {
+    void generateAutoSummary(teamId).catch(err => {
+      console.error(`[Ensemble] Auto-summary failed for ${teamId}:`, err)
+    })
+  }
+
   return { data: { team: updated! }, status: 200 }
+}
+
+/**
+ * Auto-generate AI summary using claude --print (runs in background after disband).
+ * Skipped if ENSEMBLE_AUTO_SUMMARY=false.
+ */
+async function generateAutoSummary(teamId: string): Promise<void> {
+  const team = getTeam(teamId)
+  if (!team) return
+
+  const allMessages = getMessages(teamId)
+  const agentMessages = allMessages.filter(m => m.from !== 'ensemble')
+  if (agentMessages.length < 3) return // not enough content to summarize
+
+  const durationMs = team.completedAt
+    ? new Date(team.completedAt).getTime() - new Date(team.createdAt).getTime()
+    : 0
+  const duration = formatDuration(durationMs)
+  const agentNames = team.agents.map(a => a.name).join(', ')
+
+  const formattedMessages = agentMessages
+    .slice(-50)
+    .map(m => `${m.from}: ${m.content.slice(0, 500)}`)
+    .join('\n')
+
+  const summaryPrompt = [
+    `Summarize this AI agent collaboration concisely.`,
+    `Team: ${team.name} | Task: ${team.description} | Duration: ${duration} | Agents: ${agentNames}`,
+    `Return JSON: {"summary":"2-3 sentences","decisions":["..."],"accomplished":["..."],"issues":["..."],"filesChanged":["..."]}`,
+    `Messages:\n${formattedMessages}`,
+  ].join('\n')
+
+  const promptFile = path.join(os.tmpdir(), `ensemble-autosummary-${teamId.slice(0, 8)}.txt`)
+  fs.writeFileSync(promptFile, summaryPrompt)
+
+  try {
+    const { execFile } = await import('child_process')
+    const { promisify } = await import('util')
+    const execFileAsync = promisify(execFile)
+    const isWindows = os.platform() === 'win32'
+
+    const { stdout } = await execFileAsync('claude', [
+      '--print', '--output-format', 'text', '-p',
+      `Read ${promptFile} and return the JSON summary. Return ONLY valid JSON.`,
+    ], { timeout: 120000, maxBuffer: 1024 * 1024, shell: isWindows })
+
+    if (stdout?.trim()) {
+      const jsonMatch = stdout.match(/\{[\s\S]*"summary"[\s\S]*\}/)
+      if (jsonMatch) {
+        try {
+          const obj = JSON.parse(jsonMatch[0])
+          const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+          updateTeam(teamId, {
+            result: {
+              ...existingResult,
+              aiSummary: obj.summary || stdout.trim(),
+              decisions: obj.decisions || existingResult.decisions,
+              discoveries: obj.accomplished || existingResult.discoveries,
+              filesChanged: obj.filesChanged || existingResult.filesChanged,
+            },
+          })
+          console.log(`[Ensemble] Auto-summary generated for ${teamId}`)
+        } catch { /* JSON parse failed, store raw */
+          const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+          updateTeam(teamId, { result: { ...existingResult, aiSummary: stdout.trim() } })
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[Ensemble] Auto-summary generation failed:`, err)
+  } finally {
+    try { fs.unlinkSync(promptFile) } catch { /* ok */ }
+  }
 }
 
 /**
