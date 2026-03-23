@@ -2,7 +2,7 @@ import { create } from 'zustand'
 
 interface UIState {
   /** Currently active view/tab */
-  activeView: 'teams' | 'monitor'
+  activeView: 'teams' | 'monitor' | 'settings'
   setActiveView: (view: UIState['activeView']) => void
 
   /** Whether the agent sidebar is collapsed */

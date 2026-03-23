@@ -106,6 +106,17 @@ const TOOLS = [
       required: ['steps'],
     },
   },
+  {
+    name: 'team_ask',
+    description: 'Ask the user a question. The question will appear as a banner in the web UI and the user can reply. Use this when you need clarification or a decision from the user. The response will appear as a team message.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        question: { type: 'string', description: 'The question to ask the user' },
+      },
+      required: ['question'],
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -365,6 +376,41 @@ async function handleTeamPlan(args) {
   }
 }
 
+/**
+ * Ask the user a question — sends a 'question' type message that triggers
+ * a UI banner for the user to respond.
+ */
+async function handleTeamAsk(args) {
+  if (!TEAM_ID || !AGENT_NAME) {
+    return toolError('ENSEMBLE_TEAM_ID and ENSEMBLE_AGENT_NAME must be set')
+  }
+
+  const question = args.question
+  if (!question) {
+    return toolError('question is required')
+  }
+
+  try {
+    const message = {
+      from: AGENT_NAME,
+      to: 'user',
+      content: question,
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'question',
+    }
+    const result = await apiPost(`/api/ensemble/teams/${TEAM_ID}`, message)
+
+    if (result.status >= 400) {
+      return toolError(`Failed to ask question: ${result.body?.error || result.status}`)
+    }
+
+    return toolResult(`Question sent to user: "${question}". Check team_read for the response — the user will reply via the web UI.`)
+  } catch (err) {
+    return toolError(`Cannot reach ensemble API: ${err.message}`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Response helpers
 // ---------------------------------------------------------------------------
@@ -438,6 +484,9 @@ async function handleMessage(msg) {
           break
         case 'team_plan':
           result = await handleTeamPlan(toolArgs)
+          break
+        case 'team_ask':
+          result = await handleTeamAsk(toolArgs)
           break
         default:
           return jsonRpcError(id, -32601, `Unknown tool: ${toolName}`)

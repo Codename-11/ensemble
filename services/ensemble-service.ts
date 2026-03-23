@@ -141,25 +141,51 @@ class EnsembleService {
 
       if (!this.shouldAutoDisband(team)) continue
 
-      this.disbandingTeams.add(team.id)
+      // Check if we already suggested completion — don't spam
+      const messages = getMessages(team.id)
+      const alreadySuggested = messages.some(m =>
+        m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+      )
 
-      try {
+      if (!alreadySuggested) {
+        // First detection: suggest completion, don't auto-disband yet
+        // The web UI will show a confirmation banner
         appendMessage(team.id, {
           id: uuidv4(),
           teamId: team.id,
           from: 'ensemble',
           to: 'team',
-          content: 'Auto-disband triggered after 60s idle and completion-like agent messages',
-          type: 'chat',
+          content: 'completion_suggested: Agents appear to have completed their work. Disband team?',
+          type: 'decision',
           timestamp: new Date().toISOString(),
+          options: ['Disband', 'Keep going', 'Extend 5 min'],
         })
+        console.log(`[Ensemble] Completion suggested for team ${team.id}`)
+      } else {
+        // Already suggested once — check if 5 min have passed since suggestion
+        const suggestionMsg = messages.find(m =>
+          m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+        )
+        const suggestedAt = suggestionMsg?.timestamp ? new Date(suggestionMsg.timestamp).getTime() : 0
+        const gracePeriodMs = 300_000 // 5 min grace after suggestion
 
-        await writeDisbandSummary(team.id)
-        await disbandTeam(team.id, 'auto')
-      } catch (err) {
-        console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
-      } finally {
-        this.disbandingTeams.delete(team.id)
+        if (Date.now() - suggestedAt >= gracePeriodMs) {
+          // Grace period expired — auto-disband
+          this.disbandingTeams.add(team.id)
+          try {
+            appendMessage(team.id, {
+              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              content: 'Auto-disband: no response to completion suggestion after 5 minutes.',
+              type: 'chat', timestamp: new Date().toISOString(),
+            })
+            await writeDisbandSummary(team.id)
+            await disbandTeam(team.id, 'auto')
+          } catch (err) {
+            console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
+          } finally {
+            this.disbandingTeams.delete(team.id)
+          }
+        }
       }
     }
   }
@@ -373,13 +399,14 @@ export function buildPromptPreview(params: {
   // Communication instructions depend on whether MCP tools are available
   const commInstructions = params.useMcp
     ? [
-        `COMMUNICATION: You have MCP tools: team_say, team_read, team_done, team_plan, team_status. Use them directly — do NOT use shell commands.`,
+        `COMMUNICATION: You have MCP tools: team_say, team_read, team_done, team_plan, team_ask, team_status. Use them directly — do NOT use shell commands.`,
         `1. IMMEDIATELY greet your teammate with team_say — do this FIRST before any reading or analysis.`,
         `2. Communicate FREQUENTLY — share progress every 1-2 minutes, not just when done.`,
         `3. After EVERY team_say, run team_read to check for responses.`,
         `4. If teammate shared findings, RESPOND to them before continuing your own work.`,
         `5. When your work is COMPLETE, call team_done with a summary. Do NOT keep saying "standing by" or "waiting" — call team_done instead.`,
         `6. To share a structured plan, use team_plan with an array of steps.`,
+        `7. To ask the user a question, use team_ask — the user will see it as a banner in the web UI.`,
       ]
     : [
         // Fallback: shell command instructions (backward compat when MCP is not configured)
@@ -909,14 +936,14 @@ export function detectPlan(content: string, messageId: string): TeamPlan | null 
 
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
-  existingId?: string, existingTimestamp?: string,
+  existingId?: string, existingTimestamp?: string, messageType?: string,
 ): Promise<ServiceResult<{ message: EnsembleMessage }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
   const message: EnsembleMessage = {
     id: existingId || uuidv4(), teamId, from: from || 'user', to, content,
-    type: 'chat', timestamp: existingTimestamp || new Date().toISOString(),
+    type: (messageType as EnsembleMessage['type']) || 'chat', timestamp: existingTimestamp || new Date().toISOString(),
   }
   appendMessage(teamId, message)
 

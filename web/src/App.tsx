@@ -12,12 +12,15 @@ import {
   FileText,
   RotateCcw,
   FastForward,
+  Settings,
 } from 'lucide-react'
 import { cn } from './lib/utils'
 import type { EnsembleTeam, EnsembleTeamAgent } from './types'
 import { useEnsemble } from './hooks/useEnsemble'
 import { Monitor } from './components/Monitor'
 import { LaunchForm } from './components/LaunchForm'
+import { SettingsPage } from './components/SettingsPage'
+import { useUIStore } from './stores/ui-store'
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -48,6 +51,8 @@ function agentColor(agent: EnsembleTeamAgent): string {
 // ── Component ────────────────────────────────────────────────
 
 export function App() {
+  const activeView = useUIStore((s) => s.activeView)
+  const setActiveView = useUIStore((s) => s.setActiveView)
   const [teams, setTeams] = useState<EnsembleTeam[]>([])
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null)
   const [loadingTeams, setLoadingTeams] = useState(true)
@@ -130,6 +135,15 @@ export function App() {
   const totalTeams = teams.length
   const activeCount = activeTeams.length
 
+  // ── Settings view ───────────────────────────────────────────
+  if (activeView === 'settings') {
+    return (
+      <div className="flex h-full max-h-screen flex-col overflow-hidden">
+        <SettingsPage onBack={() => setActiveView('teams')} />
+      </div>
+    )
+  }
+
   // ── Monitor view ────────────────────────────────────────────
   if (selectedTeamId && team) {
     return (
@@ -186,13 +200,22 @@ export function App() {
           </span>
         )}
 
-        <button
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          onClick={() => setShowLaunchForm(true)}
-        >
-          <Plus className="size-3.5" />
-          New Team
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            className="inline-flex items-center justify-center rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => setActiveView('settings')}
+            title="Settings"
+          >
+            <Settings className="size-4" />
+          </button>
+          <button
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            onClick={() => setShowLaunchForm(true)}
+          >
+            <Plus className="size-3.5" />
+            New Team
+          </button>
+        </div>
       </header>
 
       {/* Launch form modal */}

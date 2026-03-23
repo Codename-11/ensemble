@@ -460,6 +460,9 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
                 'flex flex-col overflow-hidden',
                 selectedSession ? 'w-3/5 min-w-0 border-r border-border' : 'flex-1',
               )}>
+                {/* Banners: completion confirmation + agent questions */}
+                <CompletionBanner messages={messages} teamId={team.id} onDisband={onDisband} />
+                <QuestionBanner messages={messages} onSend={onSend} />
                 <MessageFeed messages={messages} agents={team.agents} />
                 <ControlPanel agents={team.agents} onSend={onSend} disabled={isTerminal} />
               </div>
@@ -521,6 +524,116 @@ function ConnectionStatus({ connected, error, teamStatus }: {
       {icon}
       {label}
     </span>
+  )
+}
+
+// ── Completion confirmation banner ───────────────────────────────
+
+function CompletionBanner({ messages, teamId, onDisband }: {
+  messages: EnsembleMessage[]
+  teamId: string
+  onDisband: () => Promise<void>
+}) {
+  const hasSuggestion = messages.some(m =>
+    m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+  )
+  const [dismissed, setDismissed] = useState(false)
+  const [disbanding, setDisbanding] = useState(false)
+
+  if (!hasSuggestion || dismissed) return null
+
+  return (
+    <div className="flex shrink-0 items-center justify-between gap-3 border-b border-yellow-500/20 bg-yellow-500/5 px-4 py-2.5">
+      <span className="text-xs text-yellow-300">
+        Agents appear to have completed their work.
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={async () => {
+            setDisbanding(true)
+            await onDisband()
+          }}
+          disabled={disbanding}
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {disbanding ? 'Disbanding...' : 'Disband'}
+        </button>
+        <button
+          onClick={() => setDismissed(true)}
+          className="rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          Keep going
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Question banner (agents asking the user) ────────────────────
+
+function QuestionBanner({ messages, onSend }: {
+  messages: EnsembleMessage[]
+  onSend: (content: string, to?: string) => Promise<void>
+}) {
+  // Find the latest unanswered question from an agent
+  const questionMsg = [...messages].reverse().find(m =>
+    m.from !== 'ensemble' && m.from !== 'user' && m.type === 'question'
+  )
+
+  const [answer, setAnswer] = useState('')
+  const [sending, setSending] = useState(false)
+  const [dismissed, setDismissed] = useState<string | null>(null)
+
+  if (!questionMsg || dismissed === questionMsg.id) return null
+
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-primary/20 bg-primary/5 px-4 py-3">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-primary">{questionMsg.from} asks:</span>
+        <span className="text-xs text-foreground">{questionMsg.content.replace(/^question:\s*/i, '')}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          value={answer}
+          onChange={e => setAnswer(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && answer.trim()) {
+              setSending(true)
+              void onSend(answer.trim(), questionMsg.from).then(() => {
+                setAnswer('')
+                setSending(false)
+                setDismissed(questionMsg.id)
+              })
+            }
+          }}
+          placeholder="Type your answer..."
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+          disabled={sending}
+        />
+        <button
+          onClick={() => {
+            if (!answer.trim()) return
+            setSending(true)
+            void onSend(answer.trim(), questionMsg.from).then(() => {
+              setAnswer('')
+              setSending(false)
+              setDismissed(questionMsg.id)
+            })
+          }}
+          disabled={sending || !answer.trim()}
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          Reply
+        </button>
+        <button
+          onClick={() => setDismissed(questionMsg.id)}
+          className="text-xs text-muted-foreground hover:text-foreground"
+        >
+          Skip
+        </button>
+      </div>
+    </div>
   )
 }
 

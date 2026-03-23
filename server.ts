@@ -194,6 +194,107 @@ const server = http.createServer(async (req, res) => {
       }, 200, origin)
     }
 
+    // -----------------------------------------------------------------------
+    // Server configuration endpoints
+    // -----------------------------------------------------------------------
+
+    // GET /api/ensemble/config — return current server configuration
+    if (path === '/api/ensemble/config' && method === 'GET') {
+      const { loadAgentsConfig: loadAgents } = await import('./lib/agent-config')
+      const { getEnsembleDataDir } = await import('./lib/ensemble-paths')
+      const { getCollabRuntimeRoot } = await import('./lib/collab-paths')
+      const { DEFAULT_NUDGE_MS, DEFAULT_STALL_MS, DEFAULT_POLL_INTERVAL_MS } = await import('./lib/agent-watchdog')
+      const agentsConfig = loadAgents()
+      const startTime = (server as unknown as { _ensembleStartTime?: number })._ensembleStartTime ?? Date.now()
+
+      return json(res, {
+        port: PORT,
+        host: HOST,
+        commMode: process.env.ENSEMBLE_COMM_MODE || 'mcp',
+        autoSummary: process.env.ENSEMBLE_AUTO_SUMMARY !== 'false',
+        watchdog: {
+          nudgeMs: parseInt(process.env.ENSEMBLE_WATCHDOG_NUDGE_MS || '', 10) || DEFAULT_NUDGE_MS,
+          stallMs: parseInt(process.env.ENSEMBLE_WATCHDOG_STALL_MS || '', 10) || DEFAULT_STALL_MS,
+          pollMs: DEFAULT_POLL_INTERVAL_MS,
+        },
+        completion: {
+          windowMs: 60_000,
+          singleSignalIdleMs: 120_000,
+        },
+        agents: agentsConfig,
+        dataDir: getEnsembleDataDir(),
+        runtimeDir: getCollabRuntimeRoot(),
+        about: {
+          version: '1.0.0',
+          nodeVersion: process.version,
+          platform: os.platform(),
+          uptime: Math.floor((Date.now() - startTime) / 1000),
+        },
+      }, 200, origin)
+    }
+
+    // PATCH /api/ensemble/config — update runtime-modifiable settings
+    if (path === '/api/ensemble/config' && method === 'PATCH') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const updated: Record<string, unknown> = {}
+
+      // commMode: mcp | shell
+      if ('commMode' in body) {
+        const val = body.commMode
+        if (val === 'mcp' || val === 'shell') {
+          process.env.ENSEMBLE_COMM_MODE = val
+          updated.commMode = val
+        } else {
+          return json(res, { error: 'Bad Request: commMode must be "mcp" or "shell"' }, 400, origin)
+        }
+      }
+
+      // autoSummary: boolean
+      if ('autoSummary' in body) {
+        const val = body.autoSummary
+        if (typeof val === 'boolean') {
+          process.env.ENSEMBLE_AUTO_SUMMARY = val ? 'true' : 'false'
+          updated.autoSummary = val
+        } else {
+          return json(res, { error: 'Bad Request: autoSummary must be a boolean' }, 400, origin)
+        }
+      }
+
+      // watchdog nudgeMs
+      if ('watchdogNudgeMs' in body) {
+        const val = Number(body.watchdogNudgeMs)
+        if (Number.isFinite(val) && val > 0) {
+          process.env.ENSEMBLE_WATCHDOG_NUDGE_MS = String(val)
+          updated.watchdogNudgeMs = val
+        } else {
+          return json(res, { error: 'Bad Request: watchdogNudgeMs must be a positive number' }, 400, origin)
+        }
+      }
+
+      // watchdog stallMs
+      if ('watchdogStallMs' in body) {
+        const val = Number(body.watchdogStallMs)
+        if (Number.isFinite(val) && val > 0) {
+          process.env.ENSEMBLE_WATCHDOG_STALL_MS = String(val)
+          updated.watchdogStallMs = val
+        } else {
+          return json(res, { error: 'Bad Request: watchdogStallMs must be a positive number' }, 400, origin)
+        }
+      }
+
+      if (Object.keys(updated).length === 0) {
+        return json(res, { error: 'No valid fields to update' }, 400, origin)
+      }
+
+      return json(res, { updated }, 200, origin)
+    }
+
     // List teams / Create team
     if (path === '/api/ensemble/teams') {
       if (method === 'GET') {
@@ -229,7 +330,7 @@ const server = http.createServer(async (req, res) => {
         } catch {
           return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
         }
-        const result = await sendTeamMessage(teamId, (body.to as string) || 'team', body.content as string, body.from as string, body.id as string, body.timestamp as string)
+        const result = await sendTeamMessage(teamId, (body.to as string) || 'team', body.content as string, body.from as string, body.id as string, body.timestamp as string, body.type as string)
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
       }
@@ -821,6 +922,9 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   console.error(`${color.brightRed}\u2717${color.reset} Server failed to start:`, err)
   process.exit(1)
 })
+
+// Track server start time for uptime calculation
+;(server as unknown as { _ensembleStartTime: number })._ensembleStartTime = Date.now()
 
 server.listen(PORT, HOST, () => {
   console.log(styledHeader('ensemble'))
