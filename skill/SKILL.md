@@ -15,12 +15,12 @@ Launch a Codex + Claude team. Scripts live in `__ENSEMBLE_DIR__/scripts/`. Runti
 
 ## Path Convention
 All collab artifacts live in `/tmp/ensemble/<TEAM_ID>/`:
-- `messages.jsonl` — agent + ensemble message log
-- `summary.txt` — written on disband by ensemble-service
+- `messages.jsonl` — agent + agent-forge message log
+- `summary.txt` — written on disband by agent-forge service
 - `bridge.pid`, `bridge.log` — bridge process
 - `poller.pid`, `feed.txt` — background poller
 - `prompts/`, `delivery/` — agent prompt/delivery files
-- `.finished` — written by ensemble-service AFTER summary.txt
+- `.finished` — written by agent-forge service AFTER summary.txt
 - `team-id` — team ID marker
 
 ## Workflow
@@ -101,5 +101,5 @@ When done: summarize + cleanup poller/bridge PIDs.
 - Multiple collabs can run simultaneously — each has own `/tmp/ensemble/<TEAM_ID>/` namespace
 - `team-say.sh` uses `fcntl.flock` for atomic JSONL writes
 - `ensemble-bridge.sh` has single-instance guard, health check, exponential backoff
-- `.finished` and `summary.txt` are written by ensemble-service, NOT by scripts
+- `.finished` and `summary.txt` are written by agent-forge service, NOT by scripts
 - Bridge auto-stops when it sees `.finished` marker

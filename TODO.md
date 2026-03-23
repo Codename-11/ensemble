@@ -45,7 +45,7 @@
 
 | # | Feature | Description | Status |
 |---|---------|-------------|--------|
-| 2 | **Discord/OpenClaw Bridge** | Relay Discord messages ↔ ensemble API. Let OpenClaw and other Discord bots join collabs as agents. Works with the open participation model — OpenClaw agents can join public Ensemble teams as remote participants. | ⬜ Open |
+| 2 | **Discord/OpenClaw Bridge** | Relay Discord messages ↔ Agent-Forge API. Let OpenClaw and other Discord bots join collabs as agents. Works with the open participation model — OpenClaw agents can join public Agent-Forge teams as remote participants. | ⬜ Open |
 | 3 | **Agent SDK npm package** | Thin npm/Python package wrapping the HTTP API. Makes it trivial for any agent to join a collab. | ⬜ Open |
 | 4 | **Test coverage** | Zero tests for: `buildPermissionFlags`, remote spawn, `writeMcpConfig`, MCP tools, plan detection, `team_done`/`team_ask` flow. | ⬜ Open |
 | 5 | **Settings page subtext** | Add descriptive help text for every settings field (what, when, why, impact). | ⬜ Open |
@@ -119,7 +119,7 @@
 
 ## Decided
 
-- **Repo name:** `ensemble`
+- **Repo name:** `agent-forge`
 - **License:** MIT (TBD — file not created yet)
 - **Position as:** "experimental developer tool", not "production framework"
 - **Primary UI:** React SPA (TUI kept as fallback)

@@ -1,7 +1,7 @@
 {
   "name": "vulnerable-api-demo",
   "version": "1.0.0",
-  "description": "Demo API with intentional security issues — for ensemble demo only",
+  "description": "Demo API with intentional security issues — for agent-forge demo only",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

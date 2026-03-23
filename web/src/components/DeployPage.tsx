@@ -13,6 +13,13 @@ import {
   Terminal,
   Check,
   AlertCircle,
+  History,
+  RotateCcw,
+  Clock,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Circle,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -33,6 +40,7 @@ interface UpdateCheckResult {
     hash: string
     message: string
     author: string
+    date?: string
   }>
   changedFiles: string[]
 }
@@ -41,6 +49,17 @@ interface DeployOutputLine {
   type: 'step' | 'output' | 'done' | 'error'
   text: string
   timestamp: number
+}
+
+interface DeployHistoryEntry {
+  id: string
+  timestamp: string
+  commitHash: string
+  commitMessage: string
+  status: 'running' | 'success' | 'failed'
+  source: 'manual' | 'rollback' | 'webhook'
+  duration: number | null
+  error: string | null
 }
 
 interface Toast {
@@ -67,6 +86,25 @@ function shortenHash(hash: string): string {
   return hash.slice(0, 7)
 }
 
+function formatDuration(ms: number | null): string {
+  if (ms === null) return '-'
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = seconds % 60
+  return `${minutes}m ${remainingSeconds}s`
+}
+
+function formatTimestamp(dateStr: string): string {
+  const d = new Date(dateStr)
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 // ── Component ──────────────────────────────────────────────────
 
 interface DeployPageProps {
@@ -88,6 +126,23 @@ export function DeployPage({ onBack }: DeployPageProps) {
   const [deployOutput, setDeployOutput] = useState<DeployOutputLine[]>([])
   const [deploySuccess, setDeploySuccess] = useState(false)
   const [deployError, setDeployError] = useState<string | null>(null)
+
+  // Rollback
+  const [rollbackTarget, setRollbackTarget] = useState<string | null>(null)
+  const [rollbackConfirm, setRollbackConfirm] = useState<string | null>(null)
+  const [rollingBack, setRollingBack] = useState(false)
+
+  // Deploy history
+  const [deployHistory, setDeployHistory] = useState<DeployHistoryEntry[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [expandedHistoryRow, setExpandedHistoryRow] = useState<string | null>(null)
+
+  // Restart overlay
+  const [restartOverlay, setRestartOverlay] = useState(false)
+  const [restartElapsed, setRestartElapsed] = useState(0)
+  const restartStartRef = useRef<number>(0)
+  const restartIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // UI
   const [toast, setToast] = useState<Toast | null>(null)
@@ -124,6 +179,27 @@ export function DeployPage({ onBack }: DeployPageProps) {
     void fetchStatus()
   }, [fetchStatus])
 
+  // ── Fetch deploy history ────────────────────────────────────
+
+  const fetchHistory = useCallback(async () => {
+    setHistoryLoading(true)
+    try {
+      const res = await fetch('/api/ensemble/deploy/history')
+      if (res.ok) {
+        const data: DeployHistoryEntry[] = await res.json()
+        setDeployHistory(data)
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void fetchHistory()
+  }, [fetchHistory])
+
   // ── Check for updates ─────────────────────────────────────
 
   const handleCheckUpdates = async () => {
@@ -144,6 +220,56 @@ export function DeployPage({ onBack }: DeployPageProps) {
     }
   }
 
+  // ── Restart overlay logic ──────────────────────────────────
+
+  const startRestartOverlay = useCallback(() => {
+    setRestartOverlay(true)
+    restartStartRef.current = Date.now()
+    setRestartElapsed(0)
+
+    // Update elapsed timer
+    restartIntervalRef.current = setInterval(() => {
+      setRestartElapsed(Date.now() - restartStartRef.current)
+    }, 500)
+
+    // Poll health endpoint
+    healthPollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch('/api/v1/health')
+        if (res.ok) {
+          // Server is back
+          dismissRestartOverlay()
+          showToast('success', 'Server restarted successfully')
+          void fetchStatus()
+          void fetchHistory()
+        }
+      } catch {
+        // Server still down, keep polling
+      }
+    }, 2000)
+  }, [fetchStatus, fetchHistory, showToast])
+
+  const dismissRestartOverlay = useCallback(() => {
+    setRestartOverlay(false)
+    setRestartElapsed(0)
+    if (restartIntervalRef.current) {
+      clearInterval(restartIntervalRef.current)
+      restartIntervalRef.current = null
+    }
+    if (healthPollRef.current) {
+      clearInterval(healthPollRef.current)
+      healthPollRef.current = null
+    }
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (restartIntervalRef.current) clearInterval(restartIntervalRef.current)
+      if (healthPollRef.current) clearInterval(healthPollRef.current)
+    }
+  }, [])
+
   // ── Deploy ────────────────────────────────────────────────
 
   const handleDeploy = () => {
@@ -160,6 +286,8 @@ export function DeployPage({ onBack }: DeployPageProps) {
     const es = new EventSource('/api/ensemble/deploy/run')
     eventSourceRef.current = es
 
+    let sawRestartStep = false
+
     const appendLine = (type: DeployOutputLine['type'], text: string) => {
       setDeployOutput(prev => [...prev, { type, text, timestamp: Date.now() }])
       // Auto-scroll to bottom
@@ -171,43 +299,117 @@ export function DeployPage({ onBack }: DeployPageProps) {
     }
 
     es.addEventListener('step', (e: MessageEvent) => {
-      appendLine('step', e.data)
+      let text: string
+      try {
+        const parsed = JSON.parse(e.data)
+        text = parsed.message || e.data
+      } catch {
+        text = e.data
+      }
+      appendLine('step', text)
+      if (text.toLowerCase().includes('restarting service')) {
+        sawRestartStep = true
+      }
     })
 
     es.addEventListener('output', (e: MessageEvent) => {
-      appendLine('output', e.data)
+      let text: string
+      try {
+        const parsed = JSON.parse(e.data)
+        text = parsed.message || e.data
+      } catch {
+        text = e.data
+      }
+      appendLine('output', text)
     })
 
     es.addEventListener('done', (e: MessageEvent) => {
-      appendLine('done', e.data || 'Deploy complete')
+      let text: string
+      try {
+        const parsed = JSON.parse(e.data)
+        text = parsed.message || 'Deploy complete'
+      } catch {
+        text = e.data || 'Deploy complete'
+      }
+      appendLine('done', text)
       setDeploying(false)
       setDeploySuccess(true)
       es.close()
       eventSourceRef.current = null
-      // Refresh version info after deploy
-      void fetchStatus()
       setUpdateResult(null)
+
+      if (sawRestartStep) {
+        startRestartOverlay()
+      } else {
+        void fetchStatus()
+        void fetchHistory()
+      }
     })
 
     es.addEventListener('error', (e: MessageEvent) => {
       // SSE error event with data (server-sent)
       if (e.data) {
-        appendLine('error', e.data)
-        setDeployError(e.data)
+        let text: string
+        try {
+          const parsed = JSON.parse(e.data)
+          text = parsed.message || e.data
+        } catch {
+          text = e.data
+        }
+        appendLine('error', text)
+        setDeployError(text)
       }
       setDeploying(false)
       es.close()
       eventSourceRef.current = null
+      void fetchHistory()
     })
 
     // Native EventSource error (connection lost)
     es.onerror = () => {
-      if (deploying) {
+      // Connection drop after restart step is expected
+      if (sawRestartStep) {
+        setDeploying(false)
+        setDeploySuccess(true)
+        es.close()
+        eventSourceRef.current = null
+        startRestartOverlay()
+        return
+      }
+      if (es.readyState === EventSource.CLOSED || es.readyState === EventSource.CONNECTING) {
         setDeployError('Connection to server lost')
         setDeploying(false)
         es.close()
         eventSourceRef.current = null
       }
+    }
+  }
+
+  // ── Rollback ────────────────────────────────────────────────
+
+  const handleRollback = async (commitHash: string) => {
+    setRollingBack(true)
+    setRollbackTarget(commitHash)
+    try {
+      const res = await fetch('/api/ensemble/deploy/rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ commitHash }),
+      })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        showToast('success', `Rolled back to ${shortenHash(commitHash)}`)
+        startRestartOverlay()
+      } else {
+        showToast('error', data.error || 'Rollback failed')
+      }
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Rollback failed')
+    } finally {
+      setRollingBack(false)
+      setRollbackTarget(null)
+      setRollbackConfirm(null)
+      void fetchHistory()
     }
   }
 
@@ -265,6 +467,45 @@ export function DeployPage({ onBack }: DeployPageProps) {
 
   return (
     <div className="flex h-full max-h-screen flex-col overflow-hidden">
+      {/* ── Restart Overlay ────────────────────────────────── */}
+      {restartOverlay && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-4 rounded-xl border border-border bg-card p-8 shadow-2xl">
+            <Loader2 className="size-10 animate-spin text-primary" />
+            <h2 className="text-lg font-semibold">Restarting Server...</h2>
+            <p className="text-sm text-muted-foreground">
+              {restartElapsed < 30_000
+                ? 'Waiting for the server to come back online...'
+                : restartElapsed < 120_000
+                  ? 'Taking longer than expected...'
+                  : 'Server may have failed to restart.'}
+            </p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Clock className="size-3" />
+              {Math.floor(restartElapsed / 1000)}s elapsed
+            </div>
+            {restartElapsed >= 120_000 && (
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-xs text-red-400">
+                  The server did not respond within 2 minutes.
+                </p>
+                <button
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  onClick={() => {
+                    dismissRestartOverlay()
+                    void fetchStatus()
+                    void fetchHistory()
+                  }}
+                >
+                  <ExternalLink className="size-3" />
+                  Manual Refresh
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center gap-3 border-b border-border px-6 py-4">
         <button
@@ -293,6 +534,40 @@ export function DeployPage({ onBack }: DeployPageProps) {
         >
           {toast.type === 'success' ? <Check className="size-3.5" /> : <AlertCircle className="size-3.5" />}
           {toast.message}
+        </div>
+      )}
+
+      {/* Rollback confirmation dialog */}
+      {rollbackConfirm && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+            <h3 className="text-sm font-semibold">Confirm Rollback</h3>
+            <p className="mt-2 text-xs text-muted-foreground">
+              This will checkout commit <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-primary">{shortenHash(rollbackConfirm)}</code>, rebuild the web app, and restart the service.
+              Any uncommitted changes will be stashed.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                className="rounded-lg px-4 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+                onClick={() => setRollbackConfirm(null)}
+                disabled={rollingBack}
+              >
+                Cancel
+              </button>
+              <button
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
+                onClick={() => void handleRollback(rollbackConfirm)}
+                disabled={rollingBack}
+              >
+                {rollingBack && rollbackTarget === rollbackConfirm ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <RotateCcw className="size-3" />
+                )}
+                {rollingBack ? 'Rolling back...' : 'Rollback'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -417,26 +692,79 @@ export function DeployPage({ onBack }: DeployPageProps) {
                 )}
               </div>
 
-              {/* New commits list */}
+              {/* ── Commit Timeline ─────────────────────────────── */}
               {updateResult && !updateResult.upToDate && updateResult.commits.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-xs font-medium text-muted-foreground">New Commits</h3>
-                  <div className="rounded-md border border-border bg-background">
-                    {updateResult.commits.map((commit, i) => (
-                      <div
-                        key={commit.hash}
-                        className={cn(
-                          'flex items-start gap-3 px-4 py-2.5 text-xs',
-                          i < updateResult.commits.length - 1 && 'border-b border-border/50'
-                        )}
-                      >
-                        <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
-                          {shortenHash(commit.hash)}
+                  <h3 className="text-xs font-medium text-muted-foreground">Commit Timeline</h3>
+                  <div className="relative pl-6">
+                    {/* Timeline line */}
+                    <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
+
+                    {/* Remote HEAD */}
+                    <div className="relative mb-3 flex items-start gap-3">
+                      <div className="absolute -left-6 top-0.5 flex size-[18px] items-center justify-center">
+                        <Circle className="size-3 fill-blue-500 text-blue-500" />
+                      </div>
+                      <div className="flex flex-1 items-start gap-3 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs">
+                        <code className="shrink-0 rounded bg-blue-500/10 px-1.5 py-0.5 font-mono text-[11px] text-blue-400">
+                          {shortenHash(updateResult.commits[0].hash)}
                         </code>
-                        <span className="flex-1 text-foreground/80">{commit.message}</span>
-                        <span className="shrink-0 text-muted-foreground">{commit.author}</span>
+                        <span className="flex-1 text-foreground/80">{updateResult.commits[0].message}</span>
+                        <span className="shrink-0 text-muted-foreground">{updateResult.commits[0].author}</span>
+                        {updateResult.commits[0].date && (
+                          <span className="shrink-0 text-muted-foreground/60">{relativeTime(updateResult.commits[0].date)}</span>
+                        )}
+                        <button
+                          className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-amber-400 transition-colors hover:bg-amber-500/10"
+                          onClick={() => setRollbackConfirm(updateResult.commits[0].hash)}
+                          disabled={rollingBack || deploying}
+                          title="Rollback to this commit"
+                        >
+                          <RotateCcw className="size-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Intermediate commits */}
+                    {updateResult.commits.slice(1).map((commit) => (
+                      <div key={commit.hash} className="relative mb-3 flex items-start gap-3">
+                        <div className="absolute -left-6 top-0.5 flex size-[18px] items-center justify-center">
+                          <Circle className="size-2.5 fill-muted-foreground/30 text-muted-foreground/30" />
+                        </div>
+                        <div className="flex flex-1 items-start gap-3 px-3 py-2 text-xs">
+                          <code className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-primary">
+                            {shortenHash(commit.hash)}
+                          </code>
+                          <span className="flex-1 text-foreground/80">{commit.message}</span>
+                          <span className="shrink-0 text-muted-foreground">{commit.author}</span>
+                          {commit.date && (
+                            <span className="shrink-0 text-muted-foreground/60">{relativeTime(commit.date)}</span>
+                          )}
+                          <button
+                            className="shrink-0 rounded px-2 py-0.5 text-[10px] font-medium text-amber-400 transition-colors hover:bg-amber-500/10"
+                            onClick={() => setRollbackConfirm(commit.hash)}
+                            disabled={rollingBack || deploying}
+                            title="Rollback to this commit"
+                          >
+                            <RotateCcw className="size-3" />
+                          </button>
+                        </div>
                       </div>
                     ))}
+
+                    {/* Current HEAD */}
+                    <div className="relative flex items-start gap-3">
+                      <div className="absolute -left-6 top-0.5 flex size-[18px] items-center justify-center">
+                        <Circle className="size-3 fill-green-500 text-green-500" />
+                      </div>
+                      <div className="flex flex-1 items-start gap-3 rounded-md border border-green-500/20 bg-green-500/5 px-3 py-2 text-xs">
+                        <code className="shrink-0 rounded bg-green-500/10 px-1.5 py-0.5 font-mono text-[11px] text-green-400">
+                          {shortenHash(status.commitHash)}
+                        </code>
+                        <span className="flex-1 text-foreground/80">{status.lastCommitMessage}</span>
+                        <span className="shrink-0 text-[10px] font-medium text-green-400">Current</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -526,6 +854,116 @@ export function DeployPage({ onBack }: DeployPageProps) {
               </div>
             </section>
           )}
+
+          {/* ── Deploy History ─────────────────────────────────── */}
+          <section className="rounded-lg border border-border bg-card">
+            <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+              <History className="size-4 text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Deploy History</h2>
+              <button
+                className="ml-auto rounded p-1 text-muted-foreground/50 transition-colors hover:text-foreground"
+                onClick={() => void fetchHistory()}
+                title="Refresh history"
+              >
+                <RefreshCw className={cn('size-3', historyLoading && 'animate-spin')} />
+              </button>
+            </div>
+
+            {historyLoading && deployHistory.length === 0 ? (
+              <div className="flex items-center justify-center py-8 text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span className="ml-2 text-xs">Loading history...</span>
+              </div>
+            ) : deployHistory.length === 0 ? (
+              <div className="py-8 text-center text-xs text-muted-foreground">
+                No deploy history yet
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {/* Table header */}
+                <div className="grid grid-cols-[1fr_100px_80px_80px_60px] gap-2 px-5 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                  <span>Timestamp</span>
+                  <span>Commit</span>
+                  <span>Source</span>
+                  <span>Status</span>
+                  <span>Duration</span>
+                </div>
+
+                {deployHistory.map((entry) => (
+                  <div key={entry.id}>
+                    <button
+                      className="grid w-full grid-cols-[1fr_100px_80px_80px_60px] gap-2 px-5 py-2.5 text-left text-xs transition-colors hover:bg-muted/30"
+                      onClick={() => setExpandedHistoryRow(expandedHistoryRow === entry.id ? null : entry.id)}
+                    >
+                      <span className="flex items-center gap-1.5 text-foreground/80">
+                        {entry.status === 'failed' ? (
+                          <ChevronDown className={cn('size-3 text-muted-foreground transition-transform', expandedHistoryRow !== entry.id && '-rotate-90')} />
+                        ) : (
+                          <ChevronRight className="size-3 text-transparent" />
+                        )}
+                        {formatTimestamp(entry.timestamp)}
+                      </span>
+                      <code className="truncate rounded font-mono text-[11px] text-primary" title={entry.commitHash}>
+                        {shortenHash(entry.commitHash)}
+                      </code>
+                      <span className={cn(
+                        'text-[10px] font-medium',
+                        entry.source === 'rollback' ? 'text-amber-400' : 'text-muted-foreground'
+                      )}>
+                        {entry.source}
+                      </span>
+                      <span>
+                        {entry.status === 'success' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">
+                            <CheckCircle2 className="size-2.5" />
+                            OK
+                          </span>
+                        ) : entry.status === 'failed' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-400">
+                            <XCircle className="size-2.5" />
+                            Fail
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-400">
+                            <Loader2 className="size-2.5 animate-spin" />
+                            ...
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-muted-foreground">{formatDuration(entry.duration)}</span>
+                    </button>
+
+                    {/* Expanded error details */}
+                    {expandedHistoryRow === entry.id && entry.status === 'failed' && entry.error && (
+                      <div className="border-t border-border/50 bg-red-500/5 px-5 py-3">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="mt-0.5 size-3 shrink-0 text-red-400" />
+                          <div className="space-y-1">
+                            <p className="text-[10px] font-medium uppercase tracking-wider text-red-400/70">Error Details</p>
+                            <p className="font-mono text-[11px] text-red-300/80">{entry.error}</p>
+                          </div>
+                        </div>
+                        {entry.commitMessage && (
+                          <p className="mt-2 text-[11px] text-muted-foreground">
+                            Commit: {entry.commitMessage}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Expanded commit message for non-failed entries */}
+                    {expandedHistoryRow === entry.id && entry.status !== 'failed' && entry.commitMessage && (
+                      <div className="border-t border-border/50 bg-muted/20 px-5 py-3">
+                        <p className="text-[11px] text-muted-foreground">
+                          {entry.commitMessage}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
         </div>
       </div>

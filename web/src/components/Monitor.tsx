@@ -708,10 +708,10 @@ function QuickReference({ teamId }: { teamId: string }) {
   }, [])
 
   const commands = [
-    { label: 'New team', cmd: 'ensemble run "task" --agents codex,claude' },
+    { label: 'New team', cmd: 'agent-forge run "task" --agents codex,claude' },
     { label: 'Add agent', cmd: `curl -X POST http://localhost:23000/api/ensemble/teams/${teamId}/agents -H "Content-Type: application/json" -d '{"program":"claude"}'` },
-    { label: 'Steer team', cmd: `ensemble steer ${teamId.slice(0, 8)} "your message"` },
-    { label: 'Monitor (CLI)', cmd: `ensemble monitor ${teamId.slice(0, 8)}` },
+    { label: 'Steer team', cmd: `agent-forge steer ${teamId.slice(0, 8)} "your message"` },
+    { label: 'Monitor (CLI)', cmd: `agent-forge monitor ${teamId.slice(0, 8)}` },
     { label: 'Monitor (web)', cmd: `http://localhost:5173/#${teamId}` },
     { label: 'Disband', cmd: `curl -X POST http://localhost:23000/api/ensemble/teams/${teamId}/disband` },
   ]

@@ -34,7 +34,7 @@ ENSEMBLE_TELEGRAM_CHAT_ID=your-chat-id
 
 ## Agent programs (agents.json)
 
-The `agents.json` file defines which AI agents ensemble can spawn. Located in the project root by default, override with `ENSEMBLE_AGENTS_CONFIG`.
+The `agents.json` file defines which AI agents Agent-Forge can spawn. Located in the project root by default, override with `ENSEMBLE_AGENTS_CONFIG`.
 
 ```json
 {
@@ -76,7 +76,7 @@ The `agents.json` file defines which AI agents ensemble can spawn. Located in th
 
 ### Adding a custom agent
 
-Any CLI tool that reads from stdin and writes to stdout can be an ensemble agent. Add it to `agents.json`:
+Any CLI tool that reads from stdin and writes to stdout can be an Agent-Forge agent. Add it to `agents.json`:
 
 ```json
 {
@@ -108,7 +108,7 @@ The default team is **Claude Code (lead) + Codex (worker)**. This is the fully t
 
 #### How to use a non-default agent
 
-You don't need to change any config. Just tell ensemble which agents you want:
+You don't need to change any config. Just tell Agent-Forge which agents you want:
 
 ```bash
 # Via collab-launch.sh (first agent = lead, rest = workers)
@@ -165,7 +165,7 @@ Run agents on different machines. Configure in `~/.ensemble/hosts.json`:
 }
 ```
 
-Each host runs its own ensemble server. Agents specify `hostId` to control placement:
+Each host runs its own Agent-Forge server. Agents specify `hostId` to control placement:
 
 ```json
 {
@@ -203,7 +203,7 @@ Agent-Forge integrates with [Claude Code](https://docs.anthropic.com/en/docs/cla
 
 ### Quick setup (one command)
 
-From the ensemble directory, run:
+From the agent-forge directory, run:
 
 ```bash
 ./scripts/setup-claude-code.sh
@@ -251,7 +251,7 @@ In any Claude Code session:
 ```
 
 Claude Code will:
-1. Start the ensemble server (if not running)
+1. Start the Agent-Forge server (if not running)
 2. Spawn a Codex + Claude team
 3. Show the agent conversation inline as it happens
 4. Present a summary when the team finishes
@@ -307,7 +307,7 @@ Agent-Forge agents run autonomously inside `tmux` sessions without a human at th
 | `--dangerously-skip-permissions` | Claude Code | Allows tool execution, file edits, and shell commands without interactive permission prompts. |
 | `--full-auto` | Codex | Enables fully autonomous execution without confirmation prompts. |
 
-These flags are acceptable in the ensemble context because:
+These flags are acceptable in the Agent-Forge context because:
 
 - The server binds to `127.0.0.1` only
 - Agents operate inside the working directory you specify

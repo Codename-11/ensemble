@@ -67,9 +67,9 @@ export function styledLog(icon: string, message: string): void {
 }
 
 /**
- * Returns the branded `◈ ensemble` header string.
+ * Returns the branded `◈ agent-forge` header string.
  *
- * @example console.log(styledHeader('ensemble'))
+ * @example console.log(styledHeader('agent-forge'))
  */
 export function styledHeader(title: string): string {
   return `\n  ${color.brightCyan}\u25C8 ${color.bold}${title}${color.reset}`

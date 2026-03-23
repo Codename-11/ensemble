@@ -2,7 +2,7 @@
 
 Based on competitive analysis of oh-my-claudecode (10k⭐), overstory (1k⭐), myclaude (2.5k⭐), agents (31k⭐).
 
-## What ensemble already uniquely has
+## What Agent-Forge already uniquely has
 - Multi-host support (remote agents via HTTP)
 - True peer-to-peer agent communication (team-say/team-read)
 - REST API first-class interface

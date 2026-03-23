@@ -1,5 +1,5 @@
 /**
- * EnsembleClient — Reusable data layer for ensemble team monitoring.
+ * EnsembleClient — Reusable data layer for Agent-Forge team monitoring.
  *
  * Extracts the API communication and state management from the TUI monitor
  * so it can be shared between the CLI monitor and a future React SPA.
@@ -122,7 +122,7 @@ export class EnsembleClient extends EventEmitter {
   // ─── Lifecycle ─────────────────────────────────────────────────────
 
   /**
-   * Start polling the ensemble server. Emits 'connected' once the first
+   * Start polling the Agent-Forge server. Emits 'connected' once the first
    * successful fetch completes, then 'team' and 'messages' on every poll.
    */
   start(pollIntervalMs?: number): void {

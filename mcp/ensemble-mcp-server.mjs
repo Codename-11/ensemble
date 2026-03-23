@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ensemble-mcp-server.mjs — MCP stdio server for team communication
+ * agent-forge-mcp-server.mjs — MCP stdio server for team communication
  *
  * Exposes team_say, team_read, and team_status as native MCP tools,
  * replacing the slower shell-command-based approach.
@@ -26,7 +26,7 @@ const TEAM_ID = process.env.ENSEMBLE_TEAM_ID || ''
 const AGENT_NAME = process.env.ENSEMBLE_AGENT_NAME || ''
 const API_URL = (process.env.ENSEMBLE_API_URL || 'http://localhost:23000').replace(/\/+$/, '')
 
-const SERVER_INFO = { name: 'ensemble', version: '1.0.0' }
+const SERVER_INFO = { name: 'agent-forge', version: '1.0.0' }
 const PROTOCOL_VERSION = '2024-11-05'
 
 // ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ const PROTOCOL_VERSION = '2024-11-05'
 // ---------------------------------------------------------------------------
 
 function log(...args) {
-  process.stderr.write(`[ensemble-mcp] ${args.join(' ')}\n`)
+  process.stderr.write(`[agent-forge-mcp] ${args.join(' ')}\n`)
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +235,7 @@ async function handleTeamSay(args) {
 
     return toolResult(`Message sent to ${to}`)
   } catch (err) {
-    return toolError(`Cannot reach ensemble API at ${API_URL}: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API at ${API_URL}: ${err.message}`)
   }
 }
 
@@ -267,7 +267,7 @@ async function handleTeamRead(args) {
 
     return toolResult(formatted)
   } catch (err) {
-    return toolError(`Cannot reach ensemble API at ${API_URL}: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API at ${API_URL}: ${err.message}`)
   }
 }
 
@@ -304,7 +304,7 @@ async function handleTeamStatus(_args) {
 
     return toolResult(lines.join('\n'))
   } catch (err) {
-    return toolError(`Cannot reach ensemble API at ${API_URL}: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API at ${API_URL}: ${err.message}`)
   }
 }
 
@@ -335,7 +335,7 @@ async function handleTeamDone(args) {
 
     return toolResult(`Completion signaled: ${summary}. The team will auto-disband once all agents are done.`)
   } catch (err) {
-    return toolError(`Cannot reach ensemble API: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API: ${err.message}`)
   }
 }
 
@@ -372,7 +372,7 @@ async function handleTeamPlan(args) {
 
     return toolResult(`Plan shared with ${steps.length} steps. The team can track progress in the Plan tab.`)
   } catch (err) {
-    return toolError(`Cannot reach ensemble API: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API: ${err.message}`)
   }
 }
 
@@ -407,7 +407,7 @@ async function handleTeamAsk(args) {
 
     return toolResult(`Question sent to user: "${question}". Check team_read for the response — the user will reply via the web UI.`)
   } catch (err) {
-    return toolError(`Cannot reach ensemble API: ${err.message}`)
+    return toolError(`Cannot reach Agent-Forge API: ${err.message}`)
   }
 }
 

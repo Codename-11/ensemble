@@ -29,16 +29,16 @@ Examples:
 ```
 
 What it does:
-1. Starts the ensemble server (if not running)
+1. Starts the Agent-Forge server (if not running)
 2. Creates a team via API
-3. Starts the ensemble bridge
+3. Starts the Agent-Forge bridge
 4. Opens the TUI monitor (tmux split or background session)
 5. Starts a background message poller
 6. Waits for agents to begin communicating
 
 Output:
 ```
-◈ ensemble collab
+◈ agent-forge collab
   Review all API endpoints for security issues
 
   ✓ Server running
@@ -129,7 +129,7 @@ Shows: team name, status (active/finished/stale), message count, last message, d
 | Flag | Description |
 |---|---|
 | `--speed N` | Playback speed multiplier (default: 1, 0 = instant) |
-| `--verbose` | Include ensemble system messages |
+| `--verbose` | Include agent-forge system messages |
 
 ---
 
@@ -164,7 +164,7 @@ These use `fcntl.flock` for atomic JSONL writes to prevent message corruption.
 **Message bridge between file-based and HTTP communication.** Started automatically by `collab-launch.sh`.
 
 - Polls `messages.jsonl` for new messages
-- POSTs them to the ensemble API
+- POSTs them to the Agent-Forge API
 - Handles retries with exponential backoff
 - Differentiates client errors (skip) from server errors (retry)
 - Single-instance guard (won't double-start)
@@ -184,5 +184,5 @@ python3 scripts/parse-messages.py <file> [options]
 |---|---|
 | `--skip N` | Skip first N lines |
 | `--max-content N` | Truncate content to N chars (default: 500) |
-| `--include-ensemble` | Include ensemble system messages |
+| `--include-ensemble` | Include agent-forge system messages |
 | `--meta-only` | Output metadata (count, timestamps) instead of messages |

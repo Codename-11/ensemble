@@ -9,7 +9,7 @@ nav_order: 2
 
 | Requirement | Why |
 |---|---|
-| **Node.js 18+** | Runtime for the ensemble server |
+| **Node.js 18+** | Runtime for the Agent-Forge server |
 | **tmux** | Agent sessions run in tmux panes |
 | **Python 3.6+** | Used by collab scripts for message parsing |
 | **curl** | Used in scripts and examples |
@@ -45,7 +45,7 @@ npm install -g @openai/codex
 
 > **Want to use other agents?** Agent-Forge is agent-agnostic — you can add Gemini CLI (experimental), Aider, or any CLI tool via `agents.json`. See [Configuration → Supported Agents](configuration#supported-agents) for details.
 
-Each agent CLI manages its own API keys. Make sure they're configured before running ensemble:
+Each agent CLI manages its own API keys. Make sure they're configured before running Agent-Forge:
 
 | Agent | Auth setup | Where to get a key |
 |---|---|---|
@@ -60,7 +60,7 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 > **Cost note:** Each agent uses its own API credits. A typical collab session (two agents, ~10 minutes) costs roughly $0.10–$0.50 depending on task complexity and models used.
 
-> **Tip:** Test that your agent CLI works standalone before using it with ensemble. Run `claude --version` or `codex --version` to verify installation, then try a simple prompt to confirm your API key works.
+> **Tip:** Test that your agent CLI works standalone before using it with Agent-Forge. Run `claude --version` or `codex --version` to verify installation, then try a simple prompt to confirm your API key works.
 
 ---
 
@@ -95,7 +95,7 @@ Expected response:
 {"status":"healthy","version":"1.0.0"}
 ```
 
-> **Troubleshooting:** If you get "Connection refused", make sure `npm run dev` is still running in your other terminal. If port 23000 is in use, you'll see a clear error message suggesting you check for other ensemble instances.
+> **Troubleshooting:** If you get "Connection refused", make sure `npm run dev` is still running in your other terminal. If port 23000 is in use, you'll see a clear error message suggesting you check for other Agent-Forge instances.
 
 ---
 
@@ -105,10 +105,10 @@ Expected response:
 
 ```bash
 # Check server status
-npx ensemble status
+npx agent-forge status
 
 # List teams (empty at first)
-npx ensemble teams
+npx agent-forge teams
 ```
 
 ### Option 2: Via API (curl)
@@ -147,10 +147,10 @@ This creates a team, starts the bridge, opens a TUI monitor, and begins the coll
 
 ```bash
 # Open the TUI monitor (replace <team-id> with your actual team ID)
-npx ensemble monitor <team-id>
+npx agent-forge monitor <team-id>
 
 # Or monitor the most recent team
-npx ensemble monitor --latest
+npx agent-forge monitor --latest
 
 # Or attach to the tmux monitor session
 tmux attach -t ensemble-<team-id>
@@ -170,7 +170,7 @@ tmux attach -t ensemble-<team-id>
 
 ```bash
 # Send a steering message to redirect the team
-npx ensemble steer <team-id> "Focus on the auth module instead"
+npx agent-forge steer <team-id> "Focus on the auth module instead"
 
 # Or via API
 curl -X POST http://localhost:23000/api/ensemble/teams/<team-id> \
@@ -200,7 +200,7 @@ curl -X DELETE http://localhost:23000/api/ensemble/teams/<team-id>
 | Problem | Solution |
 |---|---|
 | "Connection refused" on curl | Make sure `npm run dev` is running in another terminal |
-| "Port 23000 already in use" | Another ensemble server is running. Stop it or use a different port via `ENSEMBLE_PORT` |
+| "Port 23000 already in use" | Another Agent-Forge server is running. Stop it or use a different port via `ENSEMBLE_PORT` |
 | Agent doesn't respond | Check that the agent CLI is installed and API keys are set |
 | "command not found: tmux" | Install tmux (see prerequisites above) |
 

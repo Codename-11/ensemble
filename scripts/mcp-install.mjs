@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * mcp-install.mjs — Install/uninstall the ensemble MCP server for Claude and Codex
+ * mcp-install.mjs — Install/uninstall the Agent-Forge MCP server for Claude and Codex
  *
  * Usage:
  *   node scripts/mcp-install.mjs install claude  --team-id <id> --agent-name <name>
@@ -176,7 +176,7 @@ function uninstallFromCodex() {
 // ── Status ──────────────────────────────────────────────────────
 
 function showStatus() {
-  log(`  ${BD}${W}\u25C8 ensemble MCP status${R}`)
+  log(`  ${BD}${W}\u25C8 agent-forge MCP status${R}`)
   log(`  ${D}MCP server: ${MCP_SERVER_PATH}${R}`)
   log('')
 
@@ -208,7 +208,7 @@ function showStatus() {
 // ── Main ────────────────────────────────────────────────────────
 
 log('')
-log(`  ${BD}${W}\u25C8 ensemble MCP installer${R}`)
+log(`  ${BD}${W}\u25C8 agent-forge MCP installer${R}`)
 log('')
 
 switch (command) {

@@ -75,11 +75,11 @@ Stack: React 19, Zustand (state), Tailwind CSS 4, xterm.js, Vite 6.
 
 Terminal-based interface for headless operation:
 
-- `ensemble run "task" [--agents x,y]` -- create and run a team
-- `ensemble monitor [--latest | team-id]` -- live TUI monitor
-- `ensemble teams` -- list all teams
-- `ensemble steer <team-id> <message>` -- send a message
-- `ensemble status` -- server health + active team count
+- `agent-forge run "task" [--agents x,y]` -- create and run a team
+- `agent-forge monitor [--latest | team-id]` -- live TUI monitor
+- `agent-forge teams` -- list all teams
+- `agent-forge steer <team-id> <message>` -- send a message
+- `agent-forge status` -- server health + active team count
 
 ### TUI Monitor (`cli/monitor.ts`)
 
@@ -340,7 +340,7 @@ ensemble/
 |   |-- agent-watchdog.ts          # Idle/stall detection
 |   |-- cli-style.ts               # Terminal color/style helpers
 |   |-- collab-paths.ts            # Runtime file path contract
-|   |-- ensemble-client.ts         # HTTP client for ensemble API
+|   |-- ensemble-client.ts         # HTTP client for Agent-Forge API
 |   |-- ensemble-paths.ts          # Data directory paths (~/.ensemble/)
 |   |-- ensemble-registry.ts       # JSON/JSONL persistence with locking
 |   |-- hosts-config.ts            # Multi-host discovery
@@ -434,7 +434,7 @@ Agent-Forge supports distributing agents across multiple machines:
 1. **hosts.json** defines available hosts with URLs and IDs
 2. When creating a team, each agent can specify a `hostId`
 3. Local agents use the runtime directly (tmux/pty)
-4. Remote agents are spawned via HTTP calls to the remote host's ensemble server
+4. Remote agents are spawned via HTTP calls to the remote host's Agent-Forge server
 5. Messages to remote agents are delivered via `POST /api/ensemble/sessions/:name/input`
 6. The self-host is auto-detected via hostname and local IP matching
 

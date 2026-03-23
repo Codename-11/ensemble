@@ -1,13 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * ensemble — CLI entrypoint
+ * agent-forge — CLI entrypoint
  *
  * Usage:
- *   ensemble run "task" [--agents x,y]      Run headless (no Claude Code needed)
- *   ensemble monitor [--latest | team-id]   Watch team collaboration live
- *   ensemble teams                          List all teams
- *   ensemble steer <team-id> <message>      Send a message to a team
- *   ensemble status                         Server health + active teams
+ *   agent-forge run "task" [--agents x,y]      Run headless (no Claude Code needed)
+ *   agent-forge monitor [--latest | team-id]   Watch team collaboration live
+ *   agent-forge teams                          List all teams
+ *   agent-forge steer <team-id> <message>      Send a message to a team
+ *   agent-forge status                         Server health + active teams
  */
 
 import http from 'http'
@@ -66,14 +66,14 @@ async function cmdStatus() {
     const active = teams.teams.filter(t => t.status === 'active')
 
     console.log()
-    console.log(`  ${c.bold}${c.bWhite}◈ ensemble${c.r} ${c.dim}v${health.version}${c.r}`)
+    console.log(`  ${c.bold}${c.bWhite}◈ agent-forge${c.r} ${c.dim}v${health.version}${c.r}`)
     console.log(`  ${c.bGreen}●${c.r} Server healthy at ${c.dim}${API_BASE}${c.r}`)
     console.log()
     console.log(`  ${c.bold}Teams:${c.r} ${teams.teams.length} total, ${c.bGreen}${active.length} active${c.r}`)
     console.log()
   } catch {
     console.log(`\n  ${c.red}●${c.r} Cannot connect to ${API_BASE}`)
-    console.log(`  ${c.dim}Run: npm run dev (from the ensemble directory)${c.r}\n`)
+    console.log(`  ${c.dim}Run: npm run dev (from the agent-forge directory)${c.r}\n`)
   }
 }
 
@@ -96,7 +96,7 @@ async function cmdTeams() {
     }
 
     console.log()
-    console.log(`  ${c.bold}${c.bWhite}◈ ensemble teams${c.r}`)
+    console.log(`  ${c.bold}${c.bWhite}◈ agent-forge teams${c.r}`)
     console.log()
 
     for (const t of data.teams) {
@@ -123,7 +123,7 @@ async function cmdTeams() {
       console.log()
     }
   } catch {
-    console.log(`\n  ${c.red}Cannot connect to ensemble server.${c.r}\n`)
+    console.log(`\n  ${c.red}Cannot connect to Agent-Forge server.${c.r}\n`)
   }
 }
 
@@ -190,7 +190,7 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
   const runtimeRoot = process.env.ENSEMBLE_RUNTIME_DIR || path.join(os.tmpdir(), 'ensemble')
   const messagesFile = path.join(runtimeRoot, teamId, 'messages.jsonl')
 
-  console.log(`\n  ${c.bold}${c.bWhite}◈ ensemble run${c.r}`)
+  console.log(`\n  ${c.bold}${c.bWhite}◈ agent-forge run${c.r}`)
   console.log(`  ${c.dim}${task.slice(0, 100)}${c.r}`)
   console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentNames.join(' + ')}`)
   console.log(`  ${c.dim}Timeout: ${timeoutSec}s${c.r}\n`)
@@ -272,7 +272,7 @@ function readKey(): Promise<string> {
 /** Interactive run flow — prompts for task, agents, timeout then delegates to cmdRun. */
 async function interactiveRun() {
   console.log()
-  console.log(`  ${c.bold}${c.bWhite}◈ ensemble${c.r} ${c.dim}— new collaboration${c.r}`)
+  console.log(`  ${c.bold}${c.bWhite}◈ agent-forge${c.r} ${c.dim}— new collaboration${c.r}`)
   console.log()
 
   const task = await promptLine(`${c.bold}Task${c.r}`)
@@ -293,7 +293,7 @@ async function interactiveRun() {
 /** Interactive main menu — single-key selection dispatching to commands. */
 async function interactiveMenu() {
   console.log()
-  console.log(`  ${c.bold}${c.bWhite}◈ ensemble${c.r}`)
+  console.log(`  ${c.bold}${c.bWhite}◈ agent-forge${c.r}`)
   console.log()
   console.log(`  ${c.bWhite}[r]${c.r} Run new collaboration`)
   console.log(`  ${c.bWhite}[m]${c.r} Monitor latest team`)
@@ -340,7 +340,7 @@ async function interactiveMenu() {
 
 function showHelp() {
   console.log(`
-  ${c.bold}${c.bWhite}◈ ensemble${c.r} — multi-agent collaboration engine
+  ${c.bold}${c.bWhite}◈ agent-forge${c.r} — multi-agent collaboration engine
 
   ${c.bold}Commands:${c.r}
     ${c.bWhite}run${c.r} "task" [--agents ..]   Run headless (no Claude Code needed)
@@ -357,11 +357,11 @@ function showHelp() {
     ${c.bWhite}q${c.r}       Quit
 
   ${c.bold}Examples:${c.r}
-    ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
-    ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
-    ${c.dim}ensemble monitor --latest${c.r}
-    ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
-    ${c.dim}ensemble teams${c.r}
+    ${c.dim}agent-forge run "refactor auth module" --agents gemini,claude${c.r}
+    ${c.dim}agent-forge run "fix all lint errors" --timeout 300${c.r}
+    ${c.dim}agent-forge monitor --latest${c.r}
+    ${c.dim}agent-forge steer abc123 "focus on security review"${c.r}
+    ${c.dim}agent-forge teams${c.r}
 `)
 }
 
@@ -412,7 +412,7 @@ switch (cmd) {
   case 'steer':
   case 'send':
     if (args.length < 2) {
-      console.log(`Usage: ensemble steer <team-id> <message>`)
+      console.log(`Usage: agent-forge steer <team-id> <message>`)
       process.exit(1)
     }
     await cmdSteer(args[0], args.slice(1).join(' '))
@@ -426,6 +426,6 @@ switch (cmd) {
     await interactiveMenu()
     break
   default:
-    console.log(`Unknown command: ${cmd}. Try: ensemble help`)
+    console.log(`Unknown command: ${cmd}. Try: agent-forge help`)
     process.exit(1)
 }

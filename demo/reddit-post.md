@@ -9,7 +9,7 @@ I made Claude Code and Codex talk to each other — and it actually works
 
 I've been using AI coding tools daily for a while now — Claude Code, Codex, tried Aider, Gemini CLI, the works. Every few weeks there's a new comparison post here: "Claude vs Codex", "which one is better for X". And every time I'd think: these things are good at different stuff. What if they could just... work together?
 
-So I built that. It's called **ensemble** — you give it a task, it spawns a Claude Code agent and a Codex agent in separate tmux sessions, and they literally talk to each other about your code. They share findings, challenge each other, and produce a combined result.
+So I built that. It's called **Agent-Forge** — you give it a task, it spawns a Claude Code agent and a Codex agent in separate tmux sessions, and they literally talk to each other about your code. They share findings, challenge each other, and produce a combined result.
 
 The `/collab` command makes it dead simple if you use Claude Code:
 

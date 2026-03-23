@@ -90,7 +90,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 async function main() {
   log('')
-  log(`  ${BD}${W}\u25C8 ensemble collab${R}`)
+  log(`  ${BD}${W}\u25C8 agent-forge collab${R}`)
   log(`  ${D}${TASK.slice(0, 80)}${R}`)
   log('')
 

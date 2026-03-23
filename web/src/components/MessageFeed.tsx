@@ -248,7 +248,7 @@ export function MessageFeed({ messages, agents, participants = [], readOnly = fa
                 </div>
               )}
 
-              {/* ── System / ensemble messages ────────────────── */}
+              {/* ── System / agent-forge messages ────────────────── */}
               {isSystem && (
                 <div className="my-2 flex justify-center">
                   <div className="flex items-center gap-2 px-3">

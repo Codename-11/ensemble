@@ -1,12 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * Ensemble Monitor — Beautiful TUI for watching team collaboration
+ * Agent-Forge Monitor — Beautiful TUI for watching team collaboration
  * Zero dependencies beyond Node.js built-ins.
  *
  * Usage:
- *   ensemble monitor [team-id]        # Watch a specific team
- *   ensemble monitor --latest          # Watch the most recent active team
- *   ensemble monitor                   # Interactive team picker
+ *   agent-forge monitor [team-id]        # Watch a specific team
+ *   agent-forge monitor --latest          # Watch the most recent active team
+ *   agent-forge monitor                   # Interactive team picker
  */
 
 import os from 'os'
@@ -524,7 +524,7 @@ class Monitor {
     const lines: string[] = []
 
     // Title bar
-    const title = this.team ? ` ◈ ensemble — ${this.team.name} ` : ' ◈ ensemble monitor '
+    const title = this.team ? ` ◈ agent-forge — ${this.team.name} ` : ' ◈ agent-forge monitor '
     const status = this.team?.status || 'connecting...'
     const statusColor = status === 'active' ? color.brightGreen
       : status === 'disbanded' ? color.red
@@ -1031,7 +1031,7 @@ async function pickTeam(): Promise<string> {
 
     if (teams.length === 0) {
       console.log(`\n${color.yellow}  No active teams found.${color.reset}`)
-      console.log(`${color.gray}  Start one with: ensemble team create${color.reset}\n`)
+      console.log(`${color.gray}  Start one with: agent-forge team create${color.reset}\n`)
       process.exit(1)
     }
 
@@ -1040,7 +1040,7 @@ async function pickTeam(): Promise<string> {
     }
 
     // Interactive picker
-    console.log(`\n${color.bold}${color.brightWhite}  ◈ ensemble — select team${color.reset}\n`)
+    console.log(`\n${color.bold}${color.brightWhite}  ◈ agent-forge — select team${color.reset}\n`)
 
     for (let i = 0; i < teams.length; i++) {
       const t = teams[i]
@@ -1073,8 +1073,8 @@ async function pickTeam(): Promise<string> {
       })
     })
   } catch (err) {
-    console.error(`\n${color.red}  Cannot connect to ensemble server at ${API_BASE}${color.reset}`)
-    console.error(`${color.gray}  Start it with: npm run dev (from the ensemble directory)${color.reset}\n`)
+    console.error(`\n${color.red}  Cannot connect to Agent-Forge server at ${API_BASE}${color.reset}`)
+    console.error(`${color.gray}  Start it with: npm run dev (from the agent-forge directory)${color.reset}\n`)
     process.exit(1)
   }
 }

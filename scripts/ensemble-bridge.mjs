@@ -3,7 +3,7 @@
  * ensemble-bridge.mjs — Cross-platform message bridge
  * Replaces ensemble-bridge.sh (which depends on bash/Python).
  *
- * Watches messages.jsonl and posts new entries to the Ensemble API.
+ * Watches messages.jsonl and posts new entries to the Agent-Forge API.
  * Usage: node ensemble-bridge.mjs <team-id> [api-url]
  */
 

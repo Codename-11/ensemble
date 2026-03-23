@@ -1,5 +1,5 @@
 /**
- * Ensemble Server — Standalone HTTP server
+ * Agent-Forge Server — Standalone HTTP server
  * Lightweight replacement for Next.js API routes.
  */
 
@@ -1438,11 +1438,66 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
         optional: true,
       })
 
+      // --- Deploy history logging helpers ---
+      const { getEnsembleDataDir: getDataDir } = await import('./lib/ensemble-paths')
+      const historyPath = nodePath.join(getDataDir(), 'deploy-history.json')
+
+      function readDeployHistory(): Array<Record<string, unknown>> {
+        try {
+          if (fs.existsSync(historyPath)) {
+            return JSON.parse(fs.readFileSync(historyPath, 'utf-8'))
+          }
+        } catch { /* corrupted file */ }
+        return []
+      }
+
+      function writeDeployHistory(entries: Array<Record<string, unknown>>): void {
+        const dir = nodePath.dirname(historyPath)
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(historyPath, JSON.stringify(entries, null, 2))
+      }
+
+      // Create deploy history entry
+      const deployId = `deploy-${Date.now()}`
+      const deployStartTime = Date.now()
+      let deployCommitHash = ''
+      let deployCommitMessage = ''
+      try {
+        const { execSync: execSyncLog } = await import('child_process')
+        deployCommitHash = execSyncLog('git rev-parse HEAD', { cwd: projectRoot, encoding: 'utf-8' }).trim()
+        deployCommitMessage = execSyncLog('git log -1 --pretty=%s', { cwd: projectRoot, encoding: 'utf-8' }).trim()
+      } catch { /* ignore */ }
+
+      const historyEntry: Record<string, unknown> = {
+        id: deployId,
+        timestamp: new Date().toISOString(),
+        commitHash: deployCommitHash,
+        commitMessage: deployCommitMessage,
+        status: 'running',
+        source: 'manual',
+        duration: null,
+        error: null,
+      }
+
+      // Append running entry
+      const history = readDeployHistory()
+      history.unshift(historyEntry)
+      writeDeployHistory(history.slice(0, 50)) // keep max 50
+
       for (const step of steps) {
         send('step', step.message)
         const result = await runDeployCommand(step.cmd, step.args, step.cwd)
         if (result.code !== 0 && !step.optional) {
           send('error', `Step failed: ${step.message}\n${result.output}`)
+          // Update history entry to failed
+          const h = readDeployHistory()
+          const entry = h.find((e) => e.id === deployId)
+          if (entry) {
+            entry.status = 'failed'
+            entry.duration = Date.now() - deployStartTime
+            entry.error = `Step failed: ${step.message}`
+            writeDeployHistory(h)
+          }
           res.end()
           return
         }
@@ -1451,8 +1506,144 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
         }
       }
 
+      // Update history entry to success
+      try {
+        const { execSync: execSyncPost } = await import('child_process')
+        const newHash = execSyncPost('git rev-parse HEAD', { cwd: projectRoot, encoding: 'utf-8' }).trim()
+        const newMsg = execSyncPost('git log -1 --pretty=%s', { cwd: projectRoot, encoding: 'utf-8' }).trim()
+        const h = readDeployHistory()
+        const entry = h.find((e) => e.id === deployId)
+        if (entry) {
+          entry.status = 'success'
+          entry.duration = Date.now() - deployStartTime
+          entry.commitHash = newHash
+          entry.commitMessage = newMsg
+          writeDeployHistory(h)
+        }
+      } catch {
+        // Best effort - just mark success without updated hash
+        const h = readDeployHistory()
+        const entry = h.find((e) => e.id === deployId)
+        if (entry) {
+          entry.status = 'success'
+          entry.duration = Date.now() - deployStartTime
+          writeDeployHistory(h)
+        }
+      }
+
       send('done', 'Deploy complete!')
       res.end()
+      return
+    }
+
+    // GET /api/ensemble/deploy/history — past deploy history
+    if (path === '/api/ensemble/deploy/history' && method === 'GET') {
+      const { getEnsembleDataDir: getDataDirHist } = await import('./lib/ensemble-paths')
+      const historyFilePath = nodePath.join(getDataDirHist(), 'deploy-history.json')
+
+      let entries: Array<Record<string, unknown>> = []
+      try {
+        if (fs.existsSync(historyFilePath)) {
+          entries = JSON.parse(fs.readFileSync(historyFilePath, 'utf-8'))
+        }
+      } catch { /* corrupted or missing */ }
+
+      // Return last 20
+      return json(res, entries.slice(0, 20), 200, origin)
+    }
+
+    // POST /api/ensemble/deploy/rollback — rollback to a specific commit
+    if (path === '/api/ensemble/deploy/rollback' && method === 'POST') {
+      const { execSync: execSyncRb } = await import('child_process')
+      const projectRoot = __dirname
+      const webDir = nodePath.join(projectRoot, 'web')
+
+      let body: { commitHash?: string }
+      try {
+        const raw = await readBody(req)
+        body = JSON.parse(raw)
+      } catch {
+        return json(res, { error: 'Invalid JSON body' }, 400, origin)
+      }
+
+      const commitHash = body.commitHash
+      if (!commitHash || typeof commitHash !== 'string' || !/^[a-f0-9]{6,40}$/i.test(commitHash)) {
+        return json(res, { error: 'Invalid or missing commitHash' }, 400, origin)
+      }
+
+      const rollbackSteps: string[] = []
+      const rollbackStartTime = Date.now()
+
+      try {
+        // 1. Stash local changes
+        rollbackSteps.push('Stashing local changes...')
+        try {
+          execSyncRb('git stash', { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' })
+        } catch { /* nothing to stash */ }
+
+        // 2. Checkout target commit
+        rollbackSteps.push(`Checking out ${commitHash.slice(0, 7)}...`)
+        execSyncRb(`git checkout ${commitHash}`, { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' })
+
+        // 3. Build web
+        rollbackSteps.push('Building web app...')
+        execSyncRb('npm run build', { cwd: webDir, encoding: 'utf-8', stdio: 'pipe', timeout: 120_000 })
+
+        // 4. Restart service (Linux only)
+        const isWindows = os.platform() === 'win32'
+        if (!isWindows) {
+          rollbackSteps.push('Restarting service...')
+          try {
+            execSyncRb('systemctl --user restart openclaw-ensemble', { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' })
+          } catch { rollbackSteps.push('Service restart skipped (not available)') }
+        } else {
+          rollbackSteps.push('Skipping service restart (Windows)')
+        }
+
+        // Log rollback to deploy history
+        const { getEnsembleDataDir: getDataDirRb } = await import('./lib/ensemble-paths')
+        const rbHistoryPath = nodePath.join(getDataDirRb(), 'deploy-history.json')
+        let rbHistory: Array<Record<string, unknown>> = []
+        try {
+          if (fs.existsSync(rbHistoryPath)) {
+            rbHistory = JSON.parse(fs.readFileSync(rbHistoryPath, 'utf-8'))
+          }
+        } catch { /* ignore */ }
+
+        let rbCommitMessage = ''
+        try {
+          rbCommitMessage = execSyncRb('git log -1 --pretty=%s', { cwd: projectRoot, encoding: 'utf-8' }).trim()
+        } catch { /* ignore */ }
+
+        rbHistory.unshift({
+          id: `deploy-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          commitHash: commitHash,
+          commitMessage: rbCommitMessage,
+          status: 'success',
+          source: 'rollback',
+          duration: Date.now() - rollbackStartTime,
+          error: null,
+        })
+
+        const rbDir = nodePath.dirname(rbHistoryPath)
+        if (!fs.existsSync(rbDir)) fs.mkdirSync(rbDir, { recursive: true })
+        fs.writeFileSync(rbHistoryPath, JSON.stringify(rbHistory.slice(0, 50), null, 2))
+
+        return json(res, { success: true, commitHash, steps: rollbackSteps }, 200, origin)
+      } catch (err) {
+        return json(res, {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+          steps: rollbackSteps,
+        }, 500, origin)
+      }
+    }
+
+    // POST /api/ensemble/deploy/webhook — placeholder for GitHub webhook integration
+    if (path === '/api/ensemble/deploy/webhook' && method === 'POST') {
+      res.writeHead(501, buildCorsHeaders(origin))
+      res.end(JSON.stringify({ error: 'Not implemented yet — GitHub webhook integration is planned for a future release.' }))
       return
     }
 

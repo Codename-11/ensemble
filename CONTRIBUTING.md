@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Agent-Forge is an experimental multi-a
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/<your-username>/ensemble.git`
+2. Clone your fork: `git clone https://github.com/<your-username>/agent-forge.git`
 3. Install dependencies: `npm install`
 4. Start the dev server: `npm run dev`
 5. Run the type checker: `npm run build`

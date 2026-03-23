@@ -88,7 +88,7 @@ function msToSeconds(ms: number): number {
   return Math.round(ms / 1000)
 }
 
-// ── Default prompt template (mirrors buildPromptPreview from ensemble-service) ──
+// ── Default prompt template (mirrors buildPromptPreview from agent-forge service) ──
 
 const DEFAULT_PROMPT_TEMPLATE = `You are {agentName} in team "{teamName}" with teammate {teammateNames}.
 Task: {description}
@@ -739,7 +739,7 @@ function McpSection({ config, showToast }: { config: ServerConfig; showToast: (t
     })
   }
 
-  const serverPath = mcpServerPath || '<path-to-ensemble>/mcp/ensemble-mcp-server.mjs'
+  const serverPath = mcpServerPath || '<path-to-agent-forge>/mcp/ensemble-mcp-server.mjs'
   const apiUrl = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`
 
   const claudeInstallCmd = `claude mcp add ensemble --env ENSEMBLE_TEAM_ID=<team-id> --env ENSEMBLE_AGENT_NAME=<name> --env ENSEMBLE_API_URL=${apiUrl} -- node ${serverPath}`

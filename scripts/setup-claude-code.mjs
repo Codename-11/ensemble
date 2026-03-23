@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * setup-claude-code.mjs — Install ensemble as /collab skill in Claude Code
+ * setup-claude-code.mjs — Install Agent-Forge as /collab skill in Claude Code
  * Cross-platform replacement for setup-claude-code.sh.
  *
  * Usage: node scripts/setup-claude-code.mjs
@@ -34,7 +34,7 @@ const WARN = `${YEL}\u26A0${R}`
 function log(msg) { console.log(msg) }
 
 log('')
-log(`  ${BD}${W}\u25C8 ensemble \u2014 Claude Code setup${R}`)
+log(`  ${BD}${W}\u25C8 agent-forge \u2014 Claude Code setup${R}`)
 log(`  ${D}Installing /collab skill${R}`)
 log('')
 

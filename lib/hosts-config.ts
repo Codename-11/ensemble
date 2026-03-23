@@ -1,5 +1,5 @@
 /**
- * Host Configuration — Stripped for Ensemble standalone
+ * Host Configuration — Stripped for Agent-Forge standalone
  * Only identity + discovery functions, no CRUD/org management
  */
 

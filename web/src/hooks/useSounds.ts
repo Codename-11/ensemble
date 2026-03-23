@@ -1,5 +1,5 @@
 /**
- * useSounds — Web Audio API synthesized sound effects for Ensemble.
+ * useSounds — Web Audio API synthesized sound effects for Agent-Forge.
  * No audio files needed — pure synthesis.
  * Mute state is persisted in localStorage. Default: muted.
  */

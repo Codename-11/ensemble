@@ -2,7 +2,7 @@
 
 **This is an intentionally insecure API for demo purposes only.**
 
-Used to demonstrate ensemble's `/collab` security review capability. The agents will find these vulnerabilities:
+Used to demonstrate Agent-Forge's `/collab` security review capability. The agents will find these vulnerabilities:
 
 - SQL injection in every database query
 - Hardcoded API keys and secrets

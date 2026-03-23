@@ -5,14 +5,14 @@ nav_order: 5
 
 # Agent-Forge — CLI Reference
 
-## ensemble CLI
+## agent-forge CLI
 
 ```bash
 # Run via tsx
 npx tsx cli/ensemble.ts <command>
 
 # Or if linked
-ensemble <command>
+agent-forge <command>
 ```
 
 ### Commands
@@ -30,16 +30,16 @@ ensemble <command>
 
 ```bash
 # Check server
-ensemble status
+agent-forge status
 
 # List active teams
-ensemble teams
+agent-forge teams
 
 # Watch the latest team
-ensemble monitor --latest
+agent-forge monitor --latest
 
 # Redirect a team's focus
-ensemble steer abc-123 "Stop the current approach and focus on testing"
+agent-forge steer abc-123 "Stop the current approach and focus on testing"
 ```
 
 ---
@@ -78,5 +78,5 @@ npm run start     # Start server (production)
 npm run build     # TypeScript typecheck (no emit)
 npm run lint      # ESLint
 npm run monitor   # Open TUI monitor for latest team
-npm run cli       # Run ensemble CLI
+npm run cli       # Run agent-forge CLI
 ```

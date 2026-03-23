@@ -1,4 +1,4 @@
-# Collab Retrospective — Ensemble Codebase Fix Sprint
+# Collab Retrospective — Agent-Forge Codebase Fix Sprint
 
 **Date**: 2026-03-20
 **Teams**: Team 1 (auto-disbanded early), Team 2 (current session)
@@ -6,7 +6,7 @@
 
 ## Background
 
-Two collab teams were tasked with fixing 11 prioritized issues in the ensemble codebase:
+Two collab teams were tasked with fixing 11 prioritized issues in the Agent-Forge codebase:
 - **Priority 1** (Correctness): teams.json locking, worktree merge race, zombie team marking, JSON 400 handling
 - **Priority 2** (Effectiveness): completion pattern false positives, staged-workflow cursor
 - **Priority 3** (Maintainability): shared Python parser, rate limiter cleanup, ensemble-bridge error handling, monitor buffer cap, failed status type

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 /**
- * scripts/dev.mjs — Cross-platform dev orchestrator for Ensemble.
+ * scripts/dev.mjs — Cross-platform dev orchestrator for Agent-Forge.
  *
- * Starts both the ensemble server and the web SPA dev server in parallel.
+ * Starts both the Agent-Forge server and the web SPA dev server in parallel.
  * Shows combined colored output with prefixes.
  * Handles Ctrl+C gracefully (kills both children).
  * Opens the SPA URL in the default browser after both are ready.
@@ -53,7 +53,7 @@ const WEB_URL     = `http://localhost:${WEB_PORT}`;
 
 /** Print branded header. */
 function header() {
-  console.log(`\n  ${c.brightCyan}\u25C8 ${c.bold}ensemble dev${c.reset}\n`);
+  console.log(`\n  ${c.brightCyan}\u25C8 ${c.bold}agent-forge dev${c.reset}\n`);
 }
 
 /** Prefix every line of a chunk with a colored tag. */

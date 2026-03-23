@@ -1,5 +1,5 @@
 /**
- * Ensemble Service — Standalone
+ * Agent-Forge Service — Standalone
  * No dependency on ai-maestro's agent-registry or agents-core-service.
  * Uses agent-spawner.ts for local/remote agent lifecycle.
  */
@@ -109,7 +109,7 @@ class EnsembleService {
             await writeDisbandSummary(team.id)
             await disbandTeam(team.id, 'auto')
           } catch (err) {
-            console.error(`[Ensemble] Auto-disband (maxTurns) failed for ${team.id}:`, err)
+            console.error(`[Agent-Forge] Auto-disband (maxTurns) failed for ${team.id}:`, err)
           } finally {
             this.disbandingTeams.delete(team.id)
           }
@@ -132,7 +132,7 @@ class EnsembleService {
             await writeDisbandSummary(team.id)
             await disbandTeam(team.id, 'auto')
           } catch (err) {
-            console.error(`[Ensemble] Auto-disband (timeout) failed for ${team.id}:`, err)
+            console.error(`[Agent-Forge] Auto-disband (timeout) failed for ${team.id}:`, err)
           } finally {
             this.disbandingTeams.delete(team.id)
           }
@@ -161,7 +161,7 @@ class EnsembleService {
           timestamp: new Date().toISOString(),
           options: ['Disband', 'Keep going', 'Extend 5 min'],
         })
-        console.log(`[Ensemble] Completion suggested for team ${team.id}`)
+        console.log(`[Agent-Forge] Completion suggested for team ${team.id}`)
       } else {
         // Already suggested once — check if 5 min have passed since suggestion
         const suggestionMsg = messages.find(m =>
@@ -182,7 +182,7 @@ class EnsembleService {
             await writeDisbandSummary(team.id)
             await disbandTeam(team.id, 'auto')
           } catch (err) {
-            console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
+            console.error(`[Agent-Forge] Auto-disband failed for ${team.id}:`, err)
           } finally {
             this.disbandingTeams.delete(team.id)
           }
@@ -292,7 +292,7 @@ function sendTelegramSummary(params: {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
   }).catch(err => {
-    console.error('[Ensemble] Telegram notification failed:', err)
+    console.error('[Agent-Forge] Telegram notification failed:', err)
   })
 }
 
@@ -300,7 +300,7 @@ async function routeToHost(_program: string, preferredHostId?: string): Promise<
   if (preferredHostId) {
     const host = getHostById(preferredHostId)
     if (host) return preferredHostId
-    console.warn(`[Ensemble] Unknown host ${preferredHostId}, falling back to self`)
+    console.warn(`[Agent-Forge] Unknown host ${preferredHostId}, falling back to self`)
   }
   return getSelfHostId()
 }
@@ -313,13 +313,13 @@ export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['
     const data: CollabTemplatesFile = JSON.parse(raw)
     const template = data.templates[templateName]
     if (!template) {
-      console.warn(`[Ensemble] Unknown template "${templateName}", falling back to default roles`)
+      console.warn(`[Agent-Forge] Unknown template "${templateName}", falling back to default roles`)
       return undefined
     }
-    console.log(`[Ensemble] Loaded template "${templateName}" (${template.name})`)
+    console.log(`[Agent-Forge] Loaded template "${templateName}" (${template.name})`)
     return template
   } catch (err) {
-    console.warn(`[Ensemble] Failed to load templates:`, err)
+    console.warn(`[Agent-Forge] Failed to load templates:`, err)
     return undefined
   }
 }
@@ -346,7 +346,7 @@ export function listCollabTemplates(): CollabTemplateSummary[] {
       roles: template.roles.map(role => role.role),
     }))
   } catch (err) {
-    console.warn('[Ensemble] Failed to list templates:', err)
+    console.warn('[Agent-Forge] Failed to list templates:', err)
     return []
   }
 }
@@ -626,7 +626,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             })
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err)
-            console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
+            console.error(`[Agent-Forge] Failed to create worktree for ${agentSpec.name}:`, message)
             appendMessage(team.id, {
               id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
               content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
@@ -663,11 +663,11 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
       ensureCollabDirs(team.id)
       const promptFile = collabPromptFile(team.id, agentSpec.name)
       fs.writeFileSync(promptFile, prompt)
-      console.log(`[Ensemble] Prompt for ${agentSpec.name}: ${prompt}`)
+      console.log(`[Agent-Forge] Prompt for ${agentSpec.name}: ${prompt}`)
 
       try {
         let agentId: string
-        console.log(`[Ensemble] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
+        console.log(`[Agent-Forge] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
 
         if (isSelf(hostId)) {
           const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
@@ -699,7 +699,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         })
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err)
-        console.error(`[Ensemble] Failed to spawn ${agentName}:`, message)
+        console.error(`[Agent-Forge] Failed to spawn ${agentName}:`, message)
         team.agents[i].status = 'idle'
         appendMessage(team.id, {
           id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
@@ -738,24 +738,24 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             if (hostId && !isSelf(hostId)) {
               const host = getHostById(hostId)
               if (host && await isRemoteSessionReady(host.url, sessionName)) {
-                console.log(`[Ensemble] ${sessionName} is remotely reachable (${Math.round((Date.now() - start) / 1000)}s)`)
+                console.log(`[Agent-Forge] ${sessionName} is remotely reachable (${Math.round((Date.now() - start) / 1000)}s)`)
                 return true
               }
             } else {
               const output = await runtime.capturePane(sessionName, 50)
               if (output.includes(readyMarker)) {
-                console.log(`[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s)`)
+                console.log(`[Agent-Forge] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s)`)
                 return true
               }
             }
           } catch { /* not ready yet */ }
           await new Promise(r => setTimeout(r, 1000))
         }
-        console.error(`[Ensemble] ${sessionName} did not become ready within ${maxWait / 1000}s`)
+        console.error(`[Agent-Forge] ${sessionName} did not become ready within ${maxWait / 1000}s`)
         return false
       }
 
-      console.log(`[Ensemble] Waiting for all ${activeAgents.length} agents to be ready...`)
+      console.log(`[Agent-Forge] Waiting for all ${activeAgents.length} agents to be ready...`)
       const readyResults = await Promise.all(
         activeAgents.map(agent => {
           const sessionName = `${team.name}-${agent.name}`
@@ -823,7 +823,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
           buildVerifyPrompt: ({ teammateToReview }) => buildStagedVerifyPrompt(teammateToReview),
         }).catch(err => {
           const message = err instanceof Error ? err.message : String(err)
-          console.error(`[Ensemble] Staged workflow failed for ${team.id}:`, message)
+          console.error(`[Agent-Forge] Staged workflow failed for ${team.id}:`, message)
           appendMessage(team.id, {
             id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
             content: `❌ Staged workflow failed: ${message}`,
@@ -832,7 +832,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         })
       } else {
         // Normal mode: inject prompts simultaneously
-        console.log(`[Ensemble] All ${ready.length} agents ready — injecting prompts simultaneously`)
+        console.log(`[Agent-Forge] All ${ready.length} agents ready — injecting prompts simultaneously`)
         await Promise.all(
           ready.map(async ({ agent, sessionName }) => {
             const promptFile = collabPromptFile(team.id, agent.name)
@@ -852,7 +852,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
                   await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
                 }
               }
-              console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
+              console.log(`[Agent-Forge] ✓ Prompt injected into ${sessionName}`)
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err)
               appendMessage(team.id, {
@@ -860,7 +860,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
                 content: `❌ Delivery to ${agent.name} failed: ${message}`,
                 type: 'chat', timestamp: new Date().toISOString(),
               })
-              console.error(`[Ensemble] ✗ Failed to inject prompt into ${sessionName}:`, err)
+              console.error(`[Agent-Forge] ✗ Failed to inject prompt into ${sessionName}:`, err)
             }
           })
         )
@@ -875,7 +875,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
   } catch (err: unknown) {
     // Top-level catch: if something unexpected blows up, mark team as failed
     const message = err instanceof Error ? err.message : String(err)
-    console.error(`[Ensemble] spawnTeamAgents failed for ${team.id}:`, message)
+    console.error(`[Agent-Forge] spawnTeamAgents failed for ${team.id}:`, message)
     appendMessage(team.id, {
       id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
       content: `❌ Team setup failed: ${message}`,
@@ -981,12 +981,12 @@ export async function sendTeamMessage(
     if (agentIdx >= 0 && team.agents[agentIdx].status === 'active') {
       team.agents[agentIdx].status = 'done'
       updateTeam(teamId, { agents: team.agents })
-      console.log(`[Ensemble] Agent ${sender} marked as done`)
+      console.log(`[Agent-Forge] Agent ${sender} marked as done`)
 
       // Check if ALL agents are now done → immediate auto-disband
       const activeAgents = team.agents.filter(a => a.status === 'active')
       if (activeAgents.length === 0) {
-        console.log(`[Ensemble] All agents done — auto-disbanding team ${teamId}`)
+        console.log(`[Agent-Forge] All agents done — auto-disbanding team ${teamId}`)
         appendMessage(teamId, {
           id: uuidv4(), teamId, from: 'ensemble', to: 'team',
           content: 'All agents signaled completion — disbanding team.',
@@ -1106,7 +1106,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
     summaryFile,
     `Task: ${team.description || 'unknown'}\nDuration: ${duration}\nMessages: ${agentMsgs.length}\n\n${summaryText}${keyFindingsSection}`,
   )
-  console.log(`[Ensemble] Summary written to ${summaryFile}`)
+  console.log(`[Agent-Forge] Summary written to ${summaryFile}`)
 }
 
 export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual' | 'error' | 'auto'): Promise<ServiceResult<{ team: EnsembleTeam }>> {
@@ -1265,7 +1265,7 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
   // Auto-generate AI summary in the background (non-blocking)
   if (process.env.ENSEMBLE_AUTO_SUMMARY !== 'false') {
     void generateAutoSummary(teamId).catch(err => {
-      console.error(`[Ensemble] Auto-summary failed for ${teamId}:`, err)
+      console.error(`[Agent-Forge] Auto-summary failed for ${teamId}:`, err)
     })
   }
 
@@ -1337,7 +1337,7 @@ async function generateAutoSummary(teamId: string): Promise<void> {
               filesChanged: obj.filesChanged || existingResult.filesChanged,
             },
           })
-          console.log(`[Ensemble] Auto-summary generated for ${teamId}`)
+          console.log(`[Agent-Forge] Auto-summary generated for ${teamId}`)
         } catch { /* JSON parse failed, store raw */
           const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
           updateTeam(teamId, { result: { ...existingResult, aiSummary: stdout.trim() } })
@@ -1345,7 +1345,7 @@ async function generateAutoSummary(teamId: string): Promise<void> {
       }
     }
   } catch (err) {
-    console.error(`[Ensemble] Auto-summary generation failed:`, err)
+    console.error(`[Agent-Forge] Auto-summary generation failed:`, err)
   }
 }
 

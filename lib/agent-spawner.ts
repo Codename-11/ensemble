@@ -1,5 +1,5 @@
 /**
- * Agent Spawner — Standalone agent lifecycle management for Ensemble
+ * Agent Spawner — Standalone agent lifecycle management for Agent-Forge
  * Replaces ai-maestro's agent-registry + agents-core-service with a minimal implementation.
  * Handles: tmux session creation, program launching, and session cleanup.
  */
@@ -80,7 +80,7 @@ function buildPermissionFlags(program: string, mode: string): string {
   return '' // unknown agent — no restrictions
 }
 
-/** Absolute path to the MCP server script bundled with ensemble */
+/** Absolute path to the MCP server script bundled with Agent-Forge */
 function getMcpServerPath(): string {
   const __dirname = path.dirname(new URL(import.meta.url).pathname)
   // On Windows, strip leading slash from /C:/... paths
@@ -90,7 +90,7 @@ function getMcpServerPath(): string {
 
 /**
  * Write an MCP config JSON file for an agent and return the file path.
- * The config registers the ensemble MCP server with the agent's team/name/API context.
+ * The config registers the Agent-Forge MCP server with the agent's team/name/API context.
  */
 function writeMcpConfig(options: {
   teamId: string
