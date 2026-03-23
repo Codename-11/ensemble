@@ -1,5 +1,14 @@
 /** Mirror of backend types for the web client */
 
+// ── Auth Types ───────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string
+  username: string
+  displayName?: string
+  role: string
+}
+
 // ── Open Participation Types ──────────────────────────────────────
 
 export type TeamVisibility = 'private' | 'shared' | 'public'

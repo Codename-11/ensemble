@@ -27,6 +27,7 @@
     "postinstall": "cd web && npm install --ignore-scripts 2>/dev/null || true"
   },
   "dependencies": {
+    "better-sqlite3": "^12.8.0",
     "tsx": "^4.0.0",
     "uuid": "^9.0.0",
     "ws": "^8.20.0"
@@ -35,6 +36,7 @@
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@types/uuid": "^9.0.0",
     "@types/ws": "^8.18.1",

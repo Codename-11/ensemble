@@ -21,6 +21,18 @@ import { getTeam, updateTeam } from './lib/ensemble-registry'
 import type { TeamConfig } from './types/ensemble'
 import { getRuntime } from './lib/agent-runtime'
 import { color, styledHeader, styledLog, styledStatus } from './lib/cli-style'
+import {
+  validateSession as validateAuthSession,
+  createSession as createAuthSession,
+  destroySession as destroyAuthSession,
+  getUser, createUser, listUsers,
+  verifyPassword,
+  ensureAdminUser,
+  parseCookies,
+  buildSessionCookie,
+  buildClearSessionCookie,
+  cleanExpiredSessions,
+} from './lib/auth'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = nodePath.dirname(__filename)
@@ -149,6 +161,7 @@ function buildCorsHeaders(origin?: string, isPublicEndpoint?: boolean): Record<s
     'Content-Type': 'application/json',
     'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
     'Vary': 'Origin',
   }
 
@@ -161,9 +174,31 @@ function buildCorsHeaders(origin?: string, isPublicEndpoint?: boolean): Record<s
   return headers
 }
 
-function json(res: http.ServerResponse, data: unknown, status = 200, origin?: string) {
-  res.writeHead(status, buildCorsHeaders(origin))
+function json(res: http.ServerResponse, data: unknown, status = 200, origin?: string, extraHeaders?: Record<string, string>) {
+  const headers = buildCorsHeaders(origin)
+  if (extraHeaders) Object.assign(headers, extraHeaders)
+  res.writeHead(status, headers)
   res.end(JSON.stringify(data))
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+
+function getAuthUser(req: http.IncomingMessage): { userId: string; username: string; displayName: string | null; role: string } | null {
+  const cookies = parseCookies(req.headers.cookie || '')
+  const token = cookies['agent-forge-session']
+  if (!token) return null
+  return validateAuthSession(token)
+}
+
+function requireAuth(req: http.IncomingMessage, res: http.ServerResponse, origin?: string): boolean {
+  const user = getAuthUser(req)
+  if (!user) {
+    json(res, { error: 'Authentication required' }, 401, origin)
+    return false
+  }
+  return true
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -224,6 +259,116 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/v1/health') {
       return json(res, { status: 'healthy', version: '1.0.0' }, 200, origin)
     }
+
+    // -----------------------------------------------------------------------
+    // Auth endpoints
+    // -----------------------------------------------------------------------
+
+    // POST /api/ensemble/auth/login — authenticate and set session cookie
+    if (path === '/api/ensemble/auth/login' && method === 'POST') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const username = typeof body.username === 'string' ? body.username.trim() : ''
+      const password = typeof body.password === 'string' ? body.password : ''
+
+      if (!username || !password) {
+        return json(res, { error: 'Username and password are required' }, 400, origin)
+      }
+
+      const user = getUser(username)
+      if (!user || !verifyPassword(password, user.passwordHash)) {
+        return json(res, { error: 'Invalid username or password' }, 401, origin)
+      }
+
+      const session = createAuthSession(user.id)
+      return json(
+        res,
+        { user: { id: user.id, username: user.username, displayName: user.displayName, role: user.role } },
+        200,
+        origin,
+        { 'Set-Cookie': buildSessionCookie(session.token) }
+      )
+    }
+
+    // POST /api/ensemble/auth/logout — destroy session and clear cookie
+    if (path === '/api/ensemble/auth/logout' && method === 'POST') {
+      const cookies = parseCookies(req.headers.cookie || '')
+      const token = cookies['agent-forge-session']
+      if (token) {
+        destroyAuthSession(token)
+      }
+      return json(
+        res,
+        { ok: true },
+        200,
+        origin,
+        { 'Set-Cookie': buildClearSessionCookie() }
+      )
+    }
+
+    // GET /api/ensemble/auth/me — return current user from session cookie
+    if (path === '/api/ensemble/auth/me' && method === 'GET') {
+      const user = getAuthUser(req)
+      if (!user) {
+        return json(res, { error: 'Not authenticated' }, 401, origin)
+      }
+      return json(res, { user: { id: user.userId, username: user.username, displayName: user.displayName, role: user.role } }, 200, origin)
+    }
+
+    // POST /api/ensemble/auth/register — create new user (admin only, or first user)
+    if (path === '/api/ensemble/auth/register' && method === 'POST') {
+      // Allow first user creation without auth; otherwise require admin
+      const existingUsers = listUsers()
+      if (existingUsers.length > 0) {
+        const currentUser = getAuthUser(req)
+        if (!currentUser || currentUser.role !== 'admin') {
+          return json(res, { error: 'Only admins can register new users' }, 403, origin)
+        }
+      }
+
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const username = typeof body.username === 'string' ? body.username.trim() : ''
+      const password = typeof body.password === 'string' ? body.password : ''
+      const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : undefined
+
+      if (!username || !password) {
+        return json(res, { error: 'Username and password are required' }, 400, origin)
+      }
+
+      if (username.length < 3 || username.length > 32) {
+        return json(res, { error: 'Username must be 3-32 characters' }, 400, origin)
+      }
+
+      if (password.length < 4) {
+        return json(res, { error: 'Password must be at least 4 characters' }, 400, origin)
+      }
+
+      // Check if user already exists
+      const existing = getUser(username)
+      if (existing) {
+        return json(res, { error: 'Username already taken' }, 409, origin)
+      }
+
+      try {
+        const newUser = createUser(username, password, displayName)
+        return json(res, { user: { id: newUser.id, username: newUser.username } }, 201, origin)
+      } catch (err) {
+        return json(res, { error: 'Failed to create user' }, 500, origin)
+      }
+    }
+
+    // -----------------------------------------------------------------------
 
     // Server info — cwd, available agents, recent project dirs
     if (path === '/api/ensemble/info' && method === 'GET') {
@@ -319,6 +464,8 @@ const server = http.createServer(async (req, res) => {
 
     // PATCH /api/ensemble/config — update runtime-modifiable settings
     if (path === '/api/ensemble/config' && method === 'PATCH') {
+      if (!requireAuth(req, res, origin)) return
+
       let body: Record<string, unknown>
       try {
         body = JSON.parse(await readBody(req))
@@ -386,6 +533,8 @@ const server = http.createServer(async (req, res) => {
         return json(res, result.data, result.status, origin)
       }
       if (method === 'POST') {
+        if (!requireAuth(req, res, origin)) return
+
         let body: unknown
         try {
           body = JSON.parse(await readBody(req))
@@ -667,6 +816,8 @@ const server = http.createServer(async (req, res) => {
         return json(res, result.data, result.status, origin)
       }
       if (method === 'DELETE') {
+        if (!requireAuth(req, res, origin)) return
+
         const result = await disbandTeam(teamId, 'manual')
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
@@ -695,6 +846,8 @@ const server = http.createServer(async (req, res) => {
     // Update team config: PATCH /api/ensemble/teams/:id/config
     const configMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/config$/)
     if (configMatch && method === 'PATCH') {
+      if (!requireAuth(req, res, origin)) return
+
       let body: Record<string, unknown>
       try {
         body = JSON.parse(await readBody(req))
@@ -815,6 +968,8 @@ const server = http.createServer(async (req, res) => {
     // Disband: /api/ensemble/teams/:id/disband
     const disbandMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
     if (disbandMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
+
       let reason: string = 'manual'
       try {
         const body = JSON.parse(await readBody(req))
@@ -983,6 +1138,8 @@ ${formattedMessages}`
     // Permanent delete: DELETE /api/ensemble/teams/:id/purge
     const purgeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
     if (purgeMatch && method === 'DELETE') {
+      if (!requireAuth(req, res, origin)) return
+
       const result = deleteTeamPermanently(purgeMatch[1])
       if (result.error) return json(res, { error: result.error }, result.status, origin)
       return json(res, result.data, result.status, origin)
@@ -1266,6 +1423,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // GET /api/ensemble/deploy/status — current deployment info
     if (path === '/api/ensemble/deploy/status' && method === 'GET') {
+      if (!requireAuth(req, res, origin)) return
+
       const { execSync: execSyncCmd } = await import('child_process')
       const projectRoot = __dirname
       const result: Record<string, unknown> = {
@@ -1318,6 +1477,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // POST /api/ensemble/deploy/check — fetch and return diff info
     if (path === '/api/ensemble/deploy/check' && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
+
       const { execSync: execSyncCmd } = await import('child_process')
       const projectRoot = __dirname
 
@@ -1369,6 +1530,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     // GET /api/ensemble/deploy/run — execute full deploy with SSE streaming
     // Uses GET so EventSource can connect directly from the browser
     if (path === '/api/ensemble/deploy/run' && (method === 'GET' || method === 'POST')) {
+      if (!requireAuth(req, res, origin)) return
+
       const { spawn: spawnDeploy } = await import('child_process')
       const projectRoot = __dirname
       const webDir = nodePath.join(projectRoot, 'web')
@@ -1538,6 +1701,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // GET /api/ensemble/deploy/history — past deploy history
     if (path === '/api/ensemble/deploy/history' && method === 'GET') {
+      if (!requireAuth(req, res, origin)) return
+
       const { getEnsembleDataDir: getDataDirHist } = await import('./lib/ensemble-paths')
       const historyFilePath = nodePath.join(getDataDirHist(), 'deploy-history.json')
 
@@ -1554,6 +1719,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // POST /api/ensemble/deploy/rollback — rollback to a specific commit
     if (path === '/api/ensemble/deploy/rollback' && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
+
       const { execSync: execSyncRb } = await import('child_process')
       const projectRoot = __dirname
       const webDir = nodePath.join(projectRoot, 'web')
@@ -1642,6 +1809,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // POST /api/ensemble/deploy/webhook — placeholder for GitHub webhook integration
     if (path === '/api/ensemble/deploy/webhook' && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
+
       res.writeHead(501, buildCorsHeaders(origin))
       res.end(JSON.stringify({ error: 'Not implemented yet — GitHub webhook integration is planned for a future release.' }))
       return
@@ -1690,6 +1859,14 @@ server.listen(PORT, HOST, () => {
   styledLog('\u2713', `Server running on http://${HOST}:${PORT}`)
   console.log(styledStatus('Health', `${color.dim}http://localhost:${PORT}/api/v1/health${color.reset}`))
   console.log()
+
+  // Initialize auth: create default admin user if none exist
+  try {
+    ensureAdminUser()
+    cleanExpiredSessions()
+  } catch (err) {
+    console.error('[Agent-Forge] Failed to initialize auth:', err)
+  }
 })
 
 // ---------------------------------------------------------------------------

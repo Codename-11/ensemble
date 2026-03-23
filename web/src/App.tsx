@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from './hooks/useRouter'
 import { navigate } from './hooks/useRouter'
+import { useAuth } from './hooks/useAuth'
 import { DashboardLayout } from './components/DashboardLayout'
 import { PublicLayout } from './components/PublicLayout'
+import { LoginPage } from './components/LoginPage'
 import { TeamListView } from './components/TeamListView'
 import { HistoryView } from './components/HistoryView'
 import { Monitor } from './components/Monitor'
@@ -22,6 +24,7 @@ function isLandingEnabled(): boolean {
 
 export function App() {
   const { pathname } = useRouter()
+  const { user, loading, error: authError, login, logout } = useAuth()
   const [serverOnline, setServerOnline] = useState<boolean | undefined>(undefined)
   const [connecting, setConnecting] = useState(true)
 
@@ -44,9 +47,21 @@ export function App() {
     setConnecting(isConnecting)
   }, [])
 
+  // ── Loading screen while checking auth ───────────────────────
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="animate-spin rounded-full border-2 border-muted border-t-primary size-6" />
+          <span className="text-sm text-muted-foreground">Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
   // ── Public routes ──────────────────────────────────────────
 
-  // Landing page (root route)
+  // Landing page (root route when landing is enabled)
   if (pathname === '/' && isLandingEnabled()) {
     return (
       <PublicLayout>
@@ -101,70 +116,92 @@ export function App() {
     )
   }
 
-  // ── Dashboard routes ──────────────────────────────────────
+  // ── Login page ─────────────────────────────────────────────
 
-  // Settings
-  if (pathname === '/app/settings') {
+  if (pathname === '/login') {
+    if (user) {
+      navigate('/app')
+      return null
+    }
+    return <LoginPage onLogin={login} error={authError} />
+  }
+
+  // ── Dashboard routes — require auth ────────────────────────
+
+  if (pathname.startsWith('/app')) {
+    if (!user) {
+      navigate('/login')
+      return null
+    }
+
+    // Settings
+    if (pathname === '/app/settings') {
+      return (
+        <DashboardLayout serverOnline={serverOnline} connecting={connecting} user={user} onLogout={logout}>
+          <SettingsPage onBack={() => navigate('/app')} />
+        </DashboardLayout>
+      )
+    }
+
+    // Deploy
+    if (pathname === '/app/deploy') {
+      return (
+        <DashboardLayout serverOnline={serverOnline} connecting={connecting} user={user} onLogout={logout}>
+          <DeployPage onBack={() => navigate('/app')} />
+        </DashboardLayout>
+      )
+    }
+
+    // History
+    if (pathname === '/app/history') {
+      return (
+        <DashboardLayout serverOnline={serverOnline} connecting={connecting} user={user} onLogout={logout}>
+          <HistoryView />
+        </DashboardLayout>
+      )
+    }
+
+    // Monitor (team detail)
+    if (pathname.startsWith('/app/team/')) {
+      return (
+        <DashboardLayout serverOnline={serverOnline} connecting={connecting} user={user} onLogout={logout}>
+          <div className="flex h-full max-h-full flex-col overflow-hidden">
+            {monitorTeamId && team ? (
+              <Monitor
+                team={team}
+                messages={messages}
+                connected={connected}
+                error={error}
+                onSend={sendMessage}
+                onDisband={disbandTeam}
+                onBack={() => navigate('/app')}
+                onNavigateToTeam={(id) => navigate(`/app/team/${id}`)}
+              />
+            ) : monitorTeamId ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+                <div className="animate-spin rounded-full border-2 border-muted border-t-primary size-6" />
+                <span className="text-sm">Loading team...</span>
+              </div>
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
+                <span className="text-sm">Team not found</span>
+              </div>
+            )}
+          </div>
+        </DashboardLayout>
+      )
+    }
+
+    // Dashboard home (/app)
     return (
-      <DashboardLayout serverOnline={serverOnline} connecting={connecting}>
-        <SettingsPage onBack={() => navigate('/app')} />
+      <DashboardLayout serverOnline={serverOnline} connecting={connecting} user={user} onLogout={logout}>
+        <TeamListView onServerStatus={handleServerStatus} />
       </DashboardLayout>
     )
   }
 
-  // Deploy
-  if (pathname === '/app/deploy') {
-    return (
-      <DashboardLayout serverOnline={serverOnline} connecting={connecting}>
-        <DeployPage onBack={() => navigate('/app')} />
-      </DashboardLayout>
-    )
-  }
+  // ── Smart redirect at / (when landing page is disabled) ────
 
-  // History
-  if (pathname === '/app/history') {
-    return (
-      <DashboardLayout serverOnline={serverOnline} connecting={connecting}>
-        <HistoryView />
-      </DashboardLayout>
-    )
-  }
-
-  // Monitor (team detail)
-  if (pathname.startsWith('/app/team/')) {
-    return (
-      <DashboardLayout serverOnline={serverOnline} connecting={connecting}>
-        <div className="flex h-full max-h-full flex-col overflow-hidden">
-          {monitorTeamId && team ? (
-            <Monitor
-              team={team}
-              messages={messages}
-              connected={connected}
-              error={error}
-              onSend={sendMessage}
-              onDisband={disbandTeam}
-              onBack={() => navigate('/app')}
-              onNavigateToTeam={(id) => navigate(`/app/team/${id}`)}
-            />
-          ) : monitorTeamId ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-              <div className="animate-spin rounded-full border-2 border-muted border-t-primary size-6" />
-              <span className="text-sm">Loading team...</span>
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
-              <span className="text-sm">Team not found</span>
-            </div>
-          )}
-        </div>
-      </DashboardLayout>
-    )
-  }
-
-  // Dashboard home (/app or /)
-  return (
-    <DashboardLayout serverOnline={serverOnline} connecting={connecting}>
-      <TeamListView onServerStatus={handleServerStatus} />
-    </DashboardLayout>
-  )
+  navigate(user ? '/app' : '/login')
+  return null
 }

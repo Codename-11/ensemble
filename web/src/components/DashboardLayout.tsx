@@ -1,13 +1,16 @@
 import { useState, useCallback } from 'react'
-import { Volume2, VolumeX, Menu, X, Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { Volume2, VolumeX, Menu, X, Wifi, WifiOff, Loader2, LogOut } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useRouter } from '../hooks/useRouter'
 import { useSounds, getMuted } from '../hooks/useSounds'
+import type { AuthUser } from '../types'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
   serverOnline?: boolean
   connecting?: boolean
+  user?: AuthUser | null
+  onLogout?: () => Promise<void>
 }
 
 const navItems = [
@@ -19,7 +22,7 @@ const navItems = [
   { path: '/app/deploy', label: 'Deploy', emoji: '🚀' },
 ]
 
-export function DashboardLayout({ children, serverOnline, connecting }: DashboardLayoutProps) {
+export function DashboardLayout({ children, serverOnline, connecting, user, onLogout }: DashboardLayoutProps) {
   const { pathname, navigate } = useRouter()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const sounds = useSounds()
@@ -78,6 +81,27 @@ export function DashboardLayout({ children, serverOnline, connecting }: Dashboar
           )
         })}
       </ul>
+
+      {/* User info + Sign out */}
+      {user && (
+        <div className="border-t border-border px-4 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">
+              {user.displayName || user.username}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">{user.role}</p>
+          </div>
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:bg-zinc-800 hover:text-foreground transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="size-4" />
+            </button>
+          )}
+        </div>
+      )}
     </nav>
   )
 
