@@ -443,7 +443,7 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
                 Result
               </h3>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                {team.result.summary}
+                {team.result.aiSummary || team.result.summary || 'No summary available'}
               </p>
               {team.result.filesChanged.length > 0 && (
                 <div className="mt-1">

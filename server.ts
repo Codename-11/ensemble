@@ -11,7 +11,7 @@ import http from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
-  getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently,
+  getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently, reopenTeam,
   addAgentToTeam, cloneTeam, exportTeam, executeTeam, listCollabTemplates,
 } from './services/ensemble-service'
 import { getTeam, updateTeam } from './lib/ensemble-registry'
@@ -641,6 +641,14 @@ ${formattedMessages}`
         const message = err instanceof Error ? err.message : 'Unknown error'
         return json(res, { error: `Failed to generate summary: ${message}` }, 500, origin)
       }
+    }
+
+    // Reopen team: POST /api/ensemble/teams/:id/reopen
+    const reopenMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/reopen$/)
+    if (reopenMatch && method === 'POST') {
+      const result = await reopenTeam(reopenMatch[1])
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
     }
 
     // Permanent delete: DELETE /api/ensemble/teams/:id/purge

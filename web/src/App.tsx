@@ -12,6 +12,7 @@ import {
   FileText,
   RotateCcw,
   FastForward,
+  PlayCircle,
   Settings,
 } from 'lucide-react'
 import { cn } from './lib/utils'
@@ -75,6 +76,15 @@ export function App() {
       const data = await res.json()
       const newId: string = data.team?.id ?? data.id
       if (newId) setSelectedTeamId(newId)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Reopen a closed team (same team ID, re-spawn agents with context)
+  const handleReopenTeam = useCallback(async (teamId: string) => {
+    try {
+      const res = await fetch(`/api/ensemble/teams/${teamId}/reopen`, { method: 'POST' })
+      if (!res.ok) return
+      setSelectedTeamId(teamId)
     } catch { /* ignore */ }
   }, [])
 
@@ -461,6 +471,14 @@ export function App() {
                     <div className="flex shrink-0 items-center gap-1.5 ml-3">
                       {hoveredTeamId === t.id && (
                         <>
+                          <button
+                            className="inline-flex items-center gap-1 rounded-md bg-green-500/10 px-2 py-1 text-[10px] font-medium text-green-400 transition-colors hover:bg-green-500/20"
+                            onClick={(e) => { e.stopPropagation(); void handleReopenTeam(t.id) }}
+                            title="Reopen — resume same team with conversation context"
+                          >
+                            <PlayCircle className="size-3" />
+                            Reopen
+                          </button>
                           <button
                             className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
                             onClick={(e) => { e.stopPropagation(); void handleCloneTeam(t.id, false) }}

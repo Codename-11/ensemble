@@ -1349,6 +1349,150 @@ async function generateAutoSummary(teamId: string): Promise<void> {
  * Permanently delete a team and all its data — registry entry, messages, runtime files.
  * Only works on disbanded/completed/failed teams. Active teams must be disbanded first.
  */
+/**
+ * Reopen a disbanded/completed/failed team — re-spawn agents with conversation context.
+ * The existing messages are preserved; agents get a catch-up summary.
+ */
+export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  if (team.status === 'active' || team.status === 'forming') {
+    return { error: 'Team is already active', status: 400 }
+  }
+
+  const apiUrl = process.env.ENSEMBLE_URL || 'http://localhost:23000'
+  const useMcp = (process.env.ENSEMBLE_COMM_MODE || 'mcp') === 'mcp'
+
+  // Reset agent statuses
+  for (const agent of team.agents) {
+    agent.status = 'spawning'
+    agent.agentId = ''
+  }
+
+  // Re-activate the team
+  updateTeam(teamId, {
+    status: 'forming',
+    completedAt: undefined,
+    agents: team.agents,
+  })
+
+  appendMessage(teamId, {
+    id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+    content: 'Team reopened — re-spawning agents with conversation context.',
+    type: 'chat', timestamp: new Date().toISOString(),
+  })
+
+  // Build catch-up context from previous messages
+  const previousMessages = getMessages(teamId)
+  const agentMessages = previousMessages
+    .filter(m => m.from !== 'ensemble')
+    .slice(-20)
+  const contextSummary = agentMessages
+    .map(m => `${m.from}: ${m.content.slice(0, 300)}`)
+    .join('\n')
+
+  // Re-spawn agents in the background (non-blocking)
+  void (async () => {
+    const cwd = process.cwd()
+
+    for (let i = 0; i < team.agents.length; i++) {
+      const agentSpec = team.agents[i]
+      const agentName = `${team.name}-${agentSpec.name}`
+
+      try {
+        if (!isSelf(agentSpec.hostId)) continue // skip remote for now
+
+        const spawned = await spawnLocalAgent({
+          name: agentName,
+          program: agentSpec.program,
+          workingDirectory: cwd,
+          hostId: agentSpec.hostId,
+          teamId,
+          apiUrl,
+          permissionMode: team.config?.permissionMode,
+        })
+
+        team.agents[i].agentId = spawned.id
+        team.agents[i].status = 'active'
+
+        appendMessage(teamId, {
+          id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+          content: `${agentSpec.name} has rejoined the team`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        team.agents[i].status = 'failed'
+        appendMessage(teamId, {
+          id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+          content: `Failed to re-spawn ${agentSpec.name}: ${message}`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      }
+    }
+
+    updateTeam(teamId, { status: 'active', agents: team.agents })
+
+    // Wait for agents to be ready, then inject catch-up prompt
+    const runtime = getRuntime()
+    const activeAgents = team.agents.filter(a => a.status === 'active')
+
+    for (const agent of activeAgents) {
+      const sessionName = `${team.name}-${agent.name}`
+      const agentConfig = resolveAgentProgram(agent.program)
+
+      // Wait for ready
+      const start = Date.now()
+      while (Date.now() - start < 60000) {
+        try {
+          const output = await runtime.capturePane(sessionName, 50)
+          if (output.includes(agentConfig.readyMarker)) break
+        } catch { /* not ready */ }
+        await new Promise(r => setTimeout(r, 1000))
+      }
+
+      await new Promise(r => setTimeout(r, 2000))
+
+      // Build reopened prompt with context
+      const otherNames = team.agents.filter(a => a.name !== agent.name).map(a => a.name)
+      const prompt = buildPromptPreview({
+        teamId,
+        teamName: team.name,
+        description: team.description,
+        agentName: agent.name,
+        teammateNames: otherNames,
+        agentIndex: team.agents.indexOf(agent),
+        useMcp,
+        permissionMode: team.config?.permissionMode,
+      })
+
+      const fullPrompt = contextSummary
+        ? `${prompt}\n\nCONTINUATION — this team was previously active. Here are the last messages:\n${contextSummary}\n\nPick up where you left off. Greet your teammates and continue working.`
+        : prompt
+
+      // Inject prompt
+      ensureCollabDirs(teamId)
+      const promptFile = collabPromptFile(teamId, agent.name)
+      fs.writeFileSync(promptFile, fullPrompt)
+
+      if (agentConfig.inputMethod === 'pasteFromFile') {
+        await runtime.pasteFromFile(sessionName, promptFile)
+      } else {
+        await runtime.sendKeys(sessionName, fullPrompt, { literal: true, enter: true })
+      }
+    }
+
+    appendMessage(teamId, {
+      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      content: `🔄 Team reopened — ${activeAgents.length} agents resumed with conversation context.`,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
+  })()
+
+  return { data: { team }, status: 200 }
+}
+
 export function deleteTeamPermanently(teamId: string): ServiceResult<{ deleted: boolean }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
