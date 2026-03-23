@@ -186,7 +186,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
       onClick={onCancel}
     >
       <form
-        className="mx-4 flex w-full max-w-lg flex-col gap-5 rounded-xl border border-[var(--border-strong)] bg-card p-6 shadow-2xl"
+        className="mx-4 flex w-full max-w-3xl flex-col gap-5 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-card p-6 shadow-2xl max-h-[90vh]"
         onClick={e => e.stopPropagation()}
         onSubmit={e => void handleSubmit(e)}
       >
@@ -513,7 +513,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
             ) : (
               <Rocket className="size-3.5" />
             )}
-            {submitting ? 'Launching...' : 'Launch Team'}
+            {submitting ? 'Launching...' : 'Launch Session'}
           </button>
         </div>
       </form>
