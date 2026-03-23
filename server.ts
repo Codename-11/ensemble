@@ -4,6 +4,7 @@
  */
 
 import fs from 'fs'
+import os from 'os'
 import nodePath from 'path'
 import { fileURLToPath } from 'url'
 import http from 'http'
@@ -321,81 +322,64 @@ Messages:
 ${formattedMessages}`
 
       try {
-        const runtime = getRuntime()
-        const sessionName = `summarize-${team.id.slice(0, 8)}`
+        const { execFile } = await import('child_process')
+        const { promisify } = await import('util')
+        const execFileAsync = promisify(execFile)
 
-        // Spawn a temporary agent session
-        const { buildAgentCommand, resolveAgentProgram } = await import('./lib/agent-config')
-        const agentConfig = resolveAgentProgram(agentProgram)
-        const startCmd = buildAgentCommand(agentProgram)
+        // Write prompt to a temp file to avoid shell escaping issues
+        const promptFile = nodePath.join(os.tmpdir(), `ensemble-summary-${team.id.slice(0, 8)}.txt`)
+        fs.writeFileSync(promptFile, summaryPrompt)
 
-        await runtime.createSession(sessionName, process.cwd())
-        await new Promise(r => setTimeout(r, 500))
+        // Use the agent's CLI in non-interactive/print mode
+        let output: string
+        const isWindows = os.platform() === 'win32'
 
-        // Start the agent with --print flag for non-interactive output (claude-specific)
-        const isClaudeProgram = agentProgram.toLowerCase().includes('claude')
-        const printCmd = isClaudeProgram
-          ? `claude --print --output-format text "${summaryPrompt.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`
-          : `${startCmd}`
-
-        await runtime.sendKeys(sessionName, printCmd, { literal: true, enter: true })
-
-        // Wait for output (poll capturePane until we see JSON or timeout)
-        let aiSummary = ''
-        const startTime = Date.now()
-        const maxWait = 60000 // 60s timeout
-
-        while (Date.now() - startTime < maxWait) {
-          await new Promise(r => setTimeout(r, 2000))
-          const output = await runtime.capturePane(sessionName, 200)
-
-          // Look for JSON in the output
-          const jsonMatch = output.match(/\{[\s\S]*"summary"[\s\S]*\}/)
-          if (jsonMatch) {
-            try {
-              const parsed = JSON.parse(jsonMatch[0])
-              aiSummary = JSON.stringify(parsed)
-              break
-            } catch { /* not valid JSON yet, keep waiting */ }
-          }
-
-          // Also check for plain text summary (non-JSON output)
-          if (output.length > 200 && !output.includes(agentConfig.readyMarker)) {
-            // Agent produced output but no JSON — use raw text
-            const lines = output.split('\n')
-            const contentLines = lines.filter(l =>
-              l.trim() && !l.includes(printCmd.slice(0, 30)) && !l.includes('$')
-            )
-            if (contentLines.length > 3) {
-              aiSummary = contentLines.join('\n').trim()
-              break
-            }
-          }
+        if (agentProgram.toLowerCase().includes('claude')) {
+          // claude --print reads from -p flag or positional arg
+          const { stdout } = await execFileAsync('claude', [
+            '--print', '--output-format', 'text', '-p', summaryPrompt,
+          ], { timeout: 120000, maxBuffer: 1024 * 1024, shell: isWindows })
+          output = stdout
+        } else if (agentProgram.toLowerCase().includes('codex')) {
+          // codex exec runs non-interactively
+          const { stdout } = await execFileAsync('codex', [
+            'exec', summaryPrompt,
+          ], { timeout: 120000, maxBuffer: 1024 * 1024, shell: isWindows })
+          output = stdout
+        } else {
+          return json(res, { error: `Agent "${agentProgram}" does not support non-interactive summarization. Use claude or codex.` }, 400, origin)
         }
 
-        // Kill the temporary session
-        try { await runtime.killSession(sessionName) } catch { /* ok */ }
+        // Clean up temp file
+        try { fs.unlinkSync(promptFile) } catch { /* ok */ }
 
-        if (!aiSummary) {
-          return json(res, { error: `Agent did not produce a summary within ${maxWait / 1000}s` }, 504, origin)
+        if (!output || !output.trim()) {
+          return json(res, { error: 'Agent produced no output' }, 504, origin)
         }
 
-        // Try to parse as JSON, fall back to raw text
+        // Try to parse JSON from output, fall back to raw text
+        const aiSummary = output.trim()
         let parsedSummary: string
+
         try {
-          const obj = JSON.parse(aiSummary)
-          parsedSummary = obj.summary || aiSummary
-          // Store structured data if available
-          const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
-          updateTeam(team.id, {
-            result: {
-              ...existingResult,
-              aiSummary: obj.summary || aiSummary,
-              decisions: obj.decisions || existingResult.decisions,
-              discoveries: obj.accomplished || existingResult.discoveries,
-              filesChanged: obj.filesChanged || existingResult.filesChanged,
-            },
-          })
+          // Look for JSON object in the output
+          const jsonMatch = aiSummary.match(/\{[\s\S]*"summary"[\s\S]*\}/)
+          if (jsonMatch) {
+            const obj = JSON.parse(jsonMatch[0])
+            parsedSummary = obj.summary || aiSummary
+            const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+            updateTeam(team.id, {
+              result: {
+                ...existingResult,
+                aiSummary: obj.summary || aiSummary,
+                decisions: obj.decisions || existingResult.decisions,
+                discoveries: obj.accomplished || existingResult.discoveries,
+                filesChanged: obj.filesChanged || existingResult.filesChanged,
+              },
+            })
+          } else {
+            throw new Error('no JSON')
+          }
         } catch {
           parsedSummary = aiSummary
           const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
