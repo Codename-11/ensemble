@@ -373,12 +373,13 @@ export function buildPromptPreview(params: {
   // Communication instructions depend on whether MCP tools are available
   const commInstructions = params.useMcp
     ? [
-        `COMMUNICATION: You have team_say and team_read tools available via MCP. Use team_say to send messages and team_read to check for responses. Do NOT use shell commands for communication — use the MCP tools directly. They are faster and more reliable.`,
+        `COMMUNICATION: You have MCP tools: team_say, team_read, team_done, team_plan, team_status. Use them directly — do NOT use shell commands.`,
         `1. IMMEDIATELY greet your teammate with team_say — do this FIRST before any reading or analysis.`,
         `2. Communicate FREQUENTLY — share progress every 1-2 minutes, not just when done.`,
         `3. After EVERY team_say, run team_read to check for responses.`,
         `4. If teammate shared findings, RESPOND to them before continuing your own work.`,
-        `5. Keep alternating: greet, plan, analyze, share, read, respond, analyze.`,
+        `5. When your work is COMPLETE, call team_done with a summary. Do NOT keep saying "standing by" or "waiting" — call team_done instead.`,
+        `6. To share a structured plan, use team_plan with an array of steps.`,
       ]
     : [
         // Fallback: shell command instructions (backward compat when MCP is not configured)

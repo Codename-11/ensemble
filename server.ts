@@ -8,6 +8,7 @@ import os from 'os'
 import nodePath from 'path'
 import { fileURLToPath } from 'url'
 import http from 'http'
+import { WebSocketServer, WebSocket } from 'ws'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
   getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently,
@@ -443,15 +444,14 @@ ${formattedMessages}`
         const isWindows = os.platform() === 'win32'
 
         if (agentProgram.toLowerCase().includes('claude')) {
-          // claude --print reads from -p flag or positional arg
+          // Write prompt to temp file, pipe via stdin to avoid command-line length limits
           const { stdout } = await execFileAsync('claude', [
-            '--print', '--output-format', 'text', '-p', summaryPrompt,
+            '--print', '--output-format', 'text', '-p', `Summarize this collaboration. Read the file ${promptFile} for details. Return JSON with task, decisions, accomplished, issues, filesChanged, summary fields.`,
           ], { timeout: 120000, maxBuffer: 1024 * 1024, shell: isWindows })
           output = stdout
         } else if (agentProgram.toLowerCase().includes('codex')) {
-          // codex exec runs non-interactively
           const { stdout } = await execFileAsync('codex', [
-            'exec', summaryPrompt,
+            'exec', `Read ${promptFile} and summarize the collaboration in JSON format with fields: task, decisions, accomplished, issues, filesChanged, summary.`,
           ], { timeout: 120000, maxBuffer: 1024 * 1024, shell: isWindows })
           output = stdout
         } else {
@@ -797,3 +797,110 @@ server.listen(PORT, HOST, () => {
   console.log(styledStatus('Health', `${color.dim}http://localhost:${PORT}/api/v1/health${color.reset}`))
   console.log()
 })
+
+// ---------------------------------------------------------------------------
+// WebSocket PTY relay — replaces SSE-based session streaming
+// ---------------------------------------------------------------------------
+
+const wss = new WebSocketServer({ noServer: true })
+
+server.on('upgrade', (req, socket, head) => {
+  const url = new URL(req.url || '/', `http://localhost:${PORT}`)
+  const match = url.pathname.match(/^\/api\/ensemble\/sessions\/([^/]+)\/ws$/)
+
+  if (!match) {
+    socket.destroy()
+    return
+  }
+
+  const sessionName = match[1]
+  // Validate session name
+  if (!isValidSessionName(sessionName)) {
+    socket.destroy()
+    return
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    handleSessionWebSocket(ws, sessionName)
+  })
+})
+
+async function handleSessionWebSocket(ws: WebSocket, sessionName: string) {
+  const runtime = getRuntime()
+  const exists = await runtime.sessionExists(sessionName)
+
+  if (!exists) {
+    ws.close(4004, 'Session not found')
+    return
+  }
+
+  // For PtySessionManager: subscribe to raw PTY output
+  if ('addDataListener' in runtime) {
+    const ptyManager = runtime as import('./lib/pty-session-manager').PtySessionManager
+
+    // Send initial buffer content
+    const initialOutput = await runtime.capturePane(sessionName, 500)
+    if (initialOutput) {
+      ws.send(initialOutput)
+    }
+
+    // Subscribe to live PTY output
+    const unsubscribe = ptyManager.addDataListener(sessionName, (data: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data)
+      }
+    })
+
+    // Receive input from client
+    ws.on('message', (msg) => {
+      try {
+        const data = JSON.parse(msg.toString())
+        if (data.type === 'input') {
+          const session = ptyManager.getSession(sessionName)
+          if (session) session.pty.write(data.text)
+        } else if (data.type === 'resize') {
+          const session = ptyManager.getSession(sessionName)
+          if (session) session.pty.resize(data.cols, data.rows)
+        }
+      } catch {
+        // Raw text input fallback
+        const session = ptyManager.getSession(sessionName)
+        if (session) session.pty.write(msg.toString())
+      }
+    })
+
+    ws.on('close', () => {
+      if (unsubscribe) unsubscribe()
+    })
+  } else {
+    // TmuxRuntime fallback: poll capturePane (existing behavior but via WebSocket)
+    const initialOutput = await runtime.capturePane(sessionName, 500)
+    if (initialOutput) ws.send(initialOutput)
+
+    let lastOutput = initialOutput
+    const interval = setInterval(async () => {
+      try {
+        const output = await runtime.capturePane(sessionName, 500)
+        if (output !== lastOutput) {
+          lastOutput = output
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(output)
+          }
+        }
+      } catch {
+        ws.close(4000, 'Session capture failed')
+      }
+    }, 2000)
+
+    ws.on('message', async (msg) => {
+      try {
+        const data = JSON.parse(msg.toString())
+        if (data.type === 'input') {
+          await runtime.sendKeys(sessionName, data.text, { literal: true, enter: data.enter || false })
+        }
+      } catch { /* ignore */ }
+    })
+
+    ws.on('close', () => clearInterval(interval))
+  }
+}

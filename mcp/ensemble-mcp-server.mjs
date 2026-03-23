@@ -80,6 +80,32 @@ const TOOLS = [
       properties: {},
     },
   },
+  {
+    name: 'team_done',
+    description: 'Signal that you have completed your work. Call this when your task is finished instead of saying "standing by" or "waiting". This helps the team auto-disband cleanly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        summary: { type: 'string', description: 'Brief summary of what you accomplished' },
+      },
+      required: ['summary'],
+    },
+  },
+  {
+    name: 'team_plan',
+    description: 'Share a structured plan with numbered steps. The system will track these steps and show them in the Plan tab.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        steps: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ordered list of plan steps',
+        },
+      },
+      required: ['steps'],
+    },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -271,6 +297,74 @@ async function handleTeamStatus(_args) {
   }
 }
 
+/**
+ * Signal completion — sends a "done" message that triggers auto-disband detection.
+ */
+async function handleTeamDone(args) {
+  if (!TEAM_ID || !AGENT_NAME) {
+    return toolError('ENSEMBLE_TEAM_ID and ENSEMBLE_AGENT_NAME must be set')
+  }
+
+  const summary = args.summary || 'Task completed.'
+
+  try {
+    // Send a completion message that the auto-disband detector will pick up
+    const message = {
+      from: AGENT_NAME,
+      to: 'team',
+      content: `Done. ${summary}`,
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+    }
+    const result = await apiPost(`/api/ensemble/teams/${TEAM_ID}`, message)
+
+    if (result.status >= 400) {
+      return toolError(`Failed to signal completion: ${result.body?.error || result.status}`)
+    }
+
+    return toolResult(`Completion signaled: ${summary}. The team will auto-disband once all agents are done.`)
+  } catch (err) {
+    return toolError(`Cannot reach ensemble API: ${err.message}`)
+  }
+}
+
+/**
+ * Share a structured plan — the system will detect and track steps.
+ */
+async function handleTeamPlan(args) {
+  if (!TEAM_ID || !AGENT_NAME) {
+    return toolError('ENSEMBLE_TEAM_ID and ENSEMBLE_AGENT_NAME must be set')
+  }
+
+  const steps = args.steps
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return toolError('steps must be a non-empty array of strings')
+  }
+
+  // Format as a numbered list so the plan detector picks it up
+  const planText = steps.map((s, i) => `${i + 1}. ${s}`).join('\n')
+  const content = `Plan:\n${planText}`
+
+  try {
+    const message = {
+      from: AGENT_NAME,
+      to: 'team',
+      content,
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+    }
+    const result = await apiPost(`/api/ensemble/teams/${TEAM_ID}`, message)
+
+    if (result.status >= 400) {
+      return toolError(`Failed to share plan: ${result.body?.error || result.status}`)
+    }
+
+    return toolResult(`Plan shared with ${steps.length} steps. The team can track progress in the Plan tab.`)
+  } catch (err) {
+    return toolError(`Cannot reach ensemble API: ${err.message}`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Response helpers
 // ---------------------------------------------------------------------------
@@ -338,6 +432,12 @@ async function handleMessage(msg) {
           break
         case 'team_status':
           result = await handleTeamStatus(toolArgs)
+          break
+        case 'team_done':
+          result = await handleTeamDone(toolArgs)
+          break
+        case 'team_plan':
+          result = await handleTeamPlan(toolArgs)
           break
         default:
           return jsonRpcError(id, -32601, `Unknown tool: ${toolName}`)
