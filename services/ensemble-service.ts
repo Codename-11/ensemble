@@ -1778,6 +1778,10 @@ export function updateTeamVisibility(
       updates.joinToken = randomBytes(24).toString('base64url')
     }
 
+    if (!team.shareCode && (visibility === 'shared' || visibility === 'public')) {
+      updates.shareCode = randomBytes(6).toString('base64url')
+    }
+
     updates.visibility = visibility
 
     appendMessage(teamId, {
@@ -1876,6 +1880,7 @@ export function getLobbyTeams(options?: {
     name: t.name,
     description: t.description,
     status: t.status,
+    visibility: t.visibility ?? 'public',
     agentCount: t.agents.length,
     participantCount: (t.participants || []).filter(p => !p.leftAt).length,
     spectatorCount: getSpectatorCount(t.id),

@@ -80,6 +80,7 @@ export interface LobbyTeam {
   name: string
   description: string
   status: EnsembleTeam['status']
+  visibility: TeamVisibility
   agentCount: number
   participantCount: number
   spectatorCount: number
@@ -117,6 +118,8 @@ export interface EnsembleTeam {
   participants: RemoteParticipant[]
   /** Join token for shared teams. */
   joinToken?: string
+  /** Short URL-safe share code. */
+  shareCode?: string
   /** Share link metadata. */
   shareLink?: ShareLink
   /** Tags for lobby listing (public teams only). */

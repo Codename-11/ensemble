@@ -42,6 +42,31 @@ type RateLimitEntry = {
 
 const rateLimitByIp = new Map<string, RateLimitEntry>()
 
+// Per-team join rate limit: max 10 joins per minute
+const joinRateLimitByTeam = new Map<string, { count: number; windowStart: number }>()
+
+function isJoinRateLimited(teamId: string): boolean {
+  const now = Date.now()
+  const current = joinRateLimitByTeam.get(teamId)
+  if (!current || now - current.windowStart >= 60_000) {
+    joinRateLimitByTeam.set(teamId, { count: 1, windowStart: now })
+    return false
+  }
+  current.count++
+  return current.count > 10
+}
+
+function stripSensitiveFields(team: any) {
+  if (team.participants) {
+    team.participants = team.participants.map((p: any) => {
+      const { tokenHash, ...safe } = p
+      return safe
+    })
+  }
+  if (team.joinToken) delete team.joinToken
+  return team
+}
+
 // Track active SSE connections for cleanup
 type SseConnection = {
   res: http.ServerResponse
@@ -380,7 +405,11 @@ const server = http.createServer(async (req, res) => {
       const limit = parseInt(url.searchParams.get('limit') || '50', 10)
       const offset = parseInt(url.searchParams.get('offset') || '0', 10)
       const result = getLobbyTeams({ tag, status, limit, offset })
-      return json(res, result.data, result.status, origin)
+      const safeData = result.data ? {
+        ...result.data,
+        teams: result.data.teams.map((t: any) => stripSensitiveFields({ ...t })),
+      } : result.data
+      return json(res, safeData, result.status, origin)
     }
 
     // ── Open Participation sub-routes (must match before teamMatch) ──
@@ -389,6 +418,9 @@ const server = http.createServer(async (req, res) => {
     const joinMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/join$/)
     if (joinMatch && method === 'POST') {
       const teamId = joinMatch[1]
+      if (isJoinRateLimited(teamId)) {
+        return json(res, { error: 'Too many join requests. Try again later.' }, 429, origin)
+      }
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty ok */ }
       const clientIp = getClientIp(req)
@@ -488,10 +520,15 @@ const server = http.createServer(async (req, res) => {
       // Send init
       const teamResult = getEnsembleTeam(teamId)
       const initData = teamResult.data
+      const safeInitParticipants = (initData?.team.participants ?? []).map((p: any) => {
+        const { tokenHash, ...safe } = p
+        return safe
+      })
+      const safeInitTeam = initData?.team ? stripSensitiveFields({ ...initData.team }) : initData?.team
       res.write(`event: init\ndata: ${JSON.stringify({
-        team: initData?.team,
+        team: safeInitTeam,
         messages: initData?.messages ?? [],
-        participants: initData?.team.participants ?? [],
+        participants: safeInitParticipants,
       })}\n\n`)
 
       let lastTimestamp: string | undefined
@@ -575,7 +612,7 @@ const server = http.createServer(async (req, res) => {
       if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
       const teamData = teamResult.data!
       return json(res, {
-        team: teamData.team,
+        team: stripSensitiveFields({ ...teamData.team }),
         messages: teamData.messages,
         replayUrl: `/replay/${teamId}`,
       }, 200, origin)
@@ -588,7 +625,8 @@ const server = http.createServer(async (req, res) => {
       if (method === 'GET') {
         const result = getEnsembleTeam(teamId)
         if (result.error) return json(res, { error: result.error }, result.status, origin)
-        return json(res, result.data, result.status, origin)
+        const safeData = result.data ? { ...result.data, team: stripSensitiveFields({ ...result.data.team }) } : result.data
+        return json(res, safeData, result.status, origin)
       }
       if (method === 'POST') {
         let body: Record<string, unknown>
