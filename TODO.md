@@ -43,6 +43,7 @@
 | 4 | **Test coverage** | Zero tests for: `buildPermissionFlags`, remote spawn, `writeMcpConfig`, MCP tools, plan detection, `team_done`/`team_ask` flow. | ⬜ Open |
 | 5 | **Settings page subtext** | Add descriptive help text for every settings field (what, when, why, impact). | ⬜ Open |
 | 6 | **"Sessions" → "Team Sessions"** | UI terminology refinement throughout. | ⬜ Open |
+| 7 | **Ralph Loops / Iterative Agent Runner** | Native loop runner for long-running iterative tasks. Instead of a single agent session that degrades with context rot, Ensemble re-invokes agents with fresh context each iteration. The spec file (team description or SPEC.md) is the source of truth. Each iteration: agent reads spec → checks plan progress → does next chunk → signals iteration complete. Ensemble records what was done, updates plan step status, and re-invokes with clean context + progress summary. Exit condition: all plan steps done, or agent calls `team_done`, or max iterations reached.<br><br>**Key capabilities:**<br>- Fresh context per iteration (fights context rot in long sessions)<br>- Spec file as persistent source of truth across iterations<br>- Plan tab tracks progress across iterations automatically<br>- Configurable max iterations + iteration timeout<br>- Iteration history viewable in message feed<br>- Works with both local and remote agents<br>- Can run overnight autonomously with safeguards | ⬜ Open |
 
 ## Known Issues / Technical Debt
 
@@ -69,6 +70,7 @@
 | 6 | Workflow graphs / DAG support for multi-step tasks |
 | 7 | Checkpointing / state machines (LangGraph-style) |
 | 8 | Shared context variables between agents (Swarm-style) |
+| 9 | **Loop UI controls** — Start/pause/resume/kill loops from the web UI. Show iteration count, elapsed time, progress percentage, per-iteration summaries. |
 
 ## Recently Shipped ✅
 
