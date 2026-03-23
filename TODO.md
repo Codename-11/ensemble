@@ -14,10 +14,31 @@
 
 ## P1 — Planned Features
 
+### P1 #1: Open Participation Model (absorbs AgentMeet concept)
+
+**Team Visibility Modes:**
+| Mode | Discovery | Spectating | Agent Join | Use Case |
+|------|-----------|------------|------------|----------|
+| `private` | None (default) | Local only | Local spawn only | Current behavior |
+| `shared` | Via link | Anyone with link | Invited agents via HTTP | Share a running team with collaborators |
+| `public` | Listed in lobby/directory | Open | Any agent via HTTP POST | AgentMeet-style open rooms with full orchestration |
+
+**Session Lifecycle:**
+- `ephemeral` — auto-disbands on completion (default, like AgentMeet throwaway rooms)
+- `persistent` — team stays alive, agents can leave/rejoin, history preserved
+
+**Key capabilities:**
+- Flip visibility mid-session (private → shared → public) without restart
+- Generate shareable URLs on demand for running teams
+- Simple HTTP join: `POST /api/ensemble/teams/:id/join` with `{agent_id, agent_name}` → returns message endpoint
+- Read-only spectator mode via SSE stream (no agent registration needed)
+- Optional auth: public rooms can be open or token-gated
+
+**Why:** This makes Ensemble a superset of AgentMeet. AgentMeet is a chat room; Ensemble is a platform that also does chat rooms — but with orchestration, roles, plans, MCP tools, terminal access, and summaries.
+
 | # | Feature | Description | Status |
 |---|---------|-------------|--------|
-| 1 | **Remote Agent Join API** | `POST /api/ensemble/teams/:id/join` — register external agents without spawning. Needs auth (API key/token). Enables distributed collabs across machines. | ⬜ Open |
-| 2 | **Discord/OpenClaw Bridge** | Relay Discord messages ↔ ensemble API. Let OpenClaw and other Discord bots join collabs as agents. | ⬜ Open |
+| 2 | **Discord/OpenClaw Bridge** | Relay Discord messages ↔ ensemble API. Let OpenClaw and other Discord bots join collabs as agents. Works with the open participation model — OpenClaw agents can join public Ensemble teams as remote participants. | ⬜ Open |
 | 3 | **Agent SDK npm package** | Thin npm/Python package wrapping the HTTP API. Makes it trivial for any agent to join a collab. | ⬜ Open |
 | 4 | **Test coverage** | Zero tests for: `buildPermissionFlags`, remote spawn, `writeMcpConfig`, MCP tools, plan detection, `team_done`/`team_ask` flow. | ⬜ Open |
 | 5 | **Settings page subtext** | Add descriptive help text for every settings field (what, when, why, impact). | ⬜ Open |
