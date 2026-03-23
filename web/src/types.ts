@@ -99,6 +99,7 @@ export interface EnsembleServerInfo {
     icon: string
   }>
   templates: CollabTemplateSummary[]
+  mcpServerPath?: string
   launchDefaults?: {
     minAgents: number
     maxAgents: number

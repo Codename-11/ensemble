@@ -658,6 +658,16 @@ function QuestionBanner({ messages, onSend }: {
 function QuickReference({ teamId }: { teamId: string }) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [mcpServerPath, setMcpServerPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/ensemble/info')
+      .then(r => r.json())
+      .then((data: EnsembleServerInfo) => {
+        if (data.mcpServerPath) setMcpServerPath(data.mcpServerPath)
+      })
+      .catch(() => {})
+  }, [])
 
   const commands = [
     { label: 'New team', cmd: 'ensemble run "task" --agents codex,claude' },
@@ -667,6 +677,12 @@ function QuickReference({ teamId }: { teamId: string }) {
     { label: 'Monitor (web)', cmd: `http://localhost:5173/#${teamId}` },
     { label: 'Disband', cmd: `curl -X POST http://localhost:23000/api/ensemble/teams/${teamId}/disband` },
   ]
+
+  const joinCmd = mcpServerPath
+    ? `claude mcp add ensemble --env ENSEMBLE_TEAM_ID=${teamId} --env ENSEMBLE_AGENT_NAME=you --env ENSEMBLE_API_URL=http://localhost:23000 -- node ${mcpServerPath}`
+    : null
+
+  const leaveCmd = 'claude mcp remove ensemble'
 
   function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text).then(() => {
@@ -687,25 +703,64 @@ function QuickReference({ teamId }: { teamId: string }) {
       </button>
 
       {open && (
-        <ul className="mt-2 flex flex-col gap-1.5">
-          {commands.map(({ label, cmd }) => (
-            <li key={label} className="group flex flex-col gap-0.5">
-              <span className="text-[0.6rem] font-medium text-muted-foreground">{label}</span>
+        <div className="mt-2 flex flex-col gap-3">
+          {/* Join from CLI */}
+          {joinCmd && (
+            <div className="flex flex-col gap-1 rounded-lg border border-green-500/20 bg-green-500/5 p-2">
+              <span className="text-[0.6rem] font-semibold uppercase tracking-wider text-green-400">Join this team from CLI</span>
               <div className="flex items-start gap-1">
                 <code className="flex-1 break-all rounded bg-background px-1.5 py-1 font-mono text-[0.6rem] leading-relaxed text-foreground/70">
-                  {cmd}
+                  {joinCmd}
                 </code>
                 <button
-                  onClick={() => copyToClipboard(cmd, label)}
+                  onClick={() => copyToClipboard(joinCmd, 'join')}
                   className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:text-foreground"
-                  title="Copy"
+                  title="Copy join command"
                 >
-                  <Copy className={cn('size-2.5', copied === label && 'text-green-400')} />
+                  <Copy className={cn('size-2.5', copied === 'join' && 'text-green-400')} />
                 </button>
               </div>
-            </li>
-          ))}
-        </ul>
+            </div>
+          )}
+
+          {/* Leave team */}
+          <div className="flex flex-col gap-1 rounded-lg border border-destructive/20 bg-destructive/5 p-2">
+            <span className="text-[0.6rem] font-semibold uppercase tracking-wider text-destructive">Leave team</span>
+            <div className="flex items-start gap-1">
+              <code className="flex-1 break-all rounded bg-background px-1.5 py-1 font-mono text-[0.6rem] leading-relaxed text-foreground/70">
+                {leaveCmd}
+              </code>
+              <button
+                onClick={() => copyToClipboard(leaveCmd, 'leave')}
+                className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:text-foreground"
+                title="Copy leave command"
+              >
+                <Copy className={cn('size-2.5', copied === 'leave' && 'text-green-400')} />
+              </button>
+            </div>
+          </div>
+
+          {/* Other commands */}
+          <ul className="flex flex-col gap-1.5">
+            {commands.map(({ label, cmd }) => (
+              <li key={label} className="group flex flex-col gap-0.5">
+                <span className="text-[0.6rem] font-medium text-muted-foreground">{label}</span>
+                <div className="flex items-start gap-1">
+                  <code className="flex-1 break-all rounded bg-background px-1.5 py-1 font-mono text-[0.6rem] leading-relaxed text-foreground/70">
+                    {cmd}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(cmd, label)}
+                    className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:text-foreground"
+                    title="Copy"
+                  >
+                    <Copy className={cn('size-2.5', copied === label && 'text-green-400')} />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   )

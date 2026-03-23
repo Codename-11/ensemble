@@ -12,6 +12,8 @@ import {
   Loader2,
   Check,
   AlertCircle,
+  Copy,
+  Plug,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
@@ -511,6 +513,9 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
             </div>
           </section>
 
+          {/* ── MCP Section ─────────────────────────────────── */}
+          <McpSection config={config} showToast={showToast} />
+
           {/* ── System Prompt Section ────────────────────────── */}
           <section className="rounded-lg border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border px-5 py-3">
@@ -615,5 +620,104 @@ function AboutItem({ label, value }: { label: string; value: string }) {
       </span>
       <span className="font-mono text-sm text-foreground">{value}</span>
     </div>
+  )
+}
+
+// ── MCP Section ───────────────────────────────────────────────
+
+function McpSection({ config, showToast }: { config: ServerConfig; showToast: (type: 'success' | 'error', message: string) => void }) {
+  const [mcpServerPath, setMcpServerPath] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/ensemble/info')
+      .then(r => r.json())
+      .then((data: { mcpServerPath?: string }) => {
+        if (data.mcpServerPath) setMcpServerPath(data.mcpServerPath)
+      })
+      .catch(() => {})
+  }, [])
+
+  function copyToClipboard(text: string, key: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key)
+      showToast('success', 'Copied to clipboard')
+      setTimeout(() => setCopied(null), 1500)
+    }).catch(() => {
+      showToast('error', 'Failed to copy')
+    })
+  }
+
+  const serverPath = mcpServerPath || '<path-to-ensemble>/mcp/ensemble-mcp-server.mjs'
+  const apiUrl = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`
+
+  const claudeInstallCmd = `claude mcp add ensemble --env ENSEMBLE_TEAM_ID=<team-id> --env ENSEMBLE_AGENT_NAME=<name> --env ENSEMBLE_API_URL=${apiUrl} -- node ${serverPath}`
+  const codexInstallCmd = `codex mcp add ensemble --env ENSEMBLE_TEAM_ID=<team-id> --env ENSEMBLE_AGENT_NAME=<name> --env ENSEMBLE_API_URL=${apiUrl} -- node ${serverPath}`
+  const claudeUninstallCmd = 'claude mcp remove ensemble'
+  const codexUninstallCmd = 'codex mcp remove ensemble'
+  const statusCmd = 'node scripts/mcp-install.mjs status'
+
+  const commands = [
+    { key: 'claude-install', label: 'Install for Claude Code', cmd: claudeInstallCmd },
+    { key: 'codex-install', label: 'Install for Codex CLI', cmd: codexInstallCmd },
+    { key: 'claude-uninstall', label: 'Uninstall from Claude', cmd: claudeUninstallCmd },
+    { key: 'codex-uninstall', label: 'Uninstall from Codex', cmd: codexUninstallCmd },
+    { key: 'status', label: 'Check status', cmd: statusCmd },
+  ]
+
+  return (
+    <section className="rounded-lg border border-border bg-card">
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+        <Plug className="size-4 text-purple-400" />
+        <h2 className="text-sm font-semibold">MCP Server</h2>
+      </div>
+      <div className="space-y-4 p-5">
+        {/* MCP server path */}
+        <SettingsField label="Server Path" readOnly>
+          <div className="flex items-center gap-2">
+            <code className="rounded bg-background px-2 py-1 font-mono text-[11px] text-foreground/70">
+              {serverPath}
+            </code>
+            {mcpServerPath && (
+              <button
+                onClick={() => copyToClipboard(mcpServerPath, 'path')}
+                className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:text-foreground"
+                title="Copy path"
+              >
+                <Copy className={cn('size-3', copied === 'path' && 'text-green-400')} />
+              </button>
+            )}
+          </div>
+        </SettingsField>
+
+        {/* Info text */}
+        <p className="text-[11px] text-muted-foreground">
+          The ensemble MCP server allows external Claude Code or Codex sessions to join a team.
+          Replace <code className="rounded bg-background px-1 text-[10px]">{'<team-id>'}</code> and{' '}
+          <code className="rounded bg-background px-1 text-[10px]">{'<name>'}</code> with actual values.
+        </p>
+
+        {/* Commands list */}
+        <div className="space-y-3">
+          {commands.map(({ key, label, cmd }) => (
+            <div key={key} className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+              <div className="flex items-start gap-2">
+                <code className="flex-1 break-all rounded bg-background px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground/70">
+                  {cmd}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(cmd, key)}
+                  className="mt-1 shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:text-foreground"
+                  title="Copy"
+                >
+                  <Copy className={cn('size-3', copied === key && 'text-green-400')} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }

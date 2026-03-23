@@ -181,10 +181,13 @@ const server = http.createServer(async (req, res) => {
       // (workingDirectory isn't stored on the team object, but descriptions often reference paths)
       const recentDirs: string[] = []
 
+      const mcpServerPath = nodePath.resolve(__dirname, 'mcp', 'ensemble-mcp-server.mjs')
+
       return json(res, {
         cwd: process.cwd(),
         agents,
         templates,
+        mcpServerPath,
         launchDefaults: {
           minAgents: 2,
           maxAgents: 4,

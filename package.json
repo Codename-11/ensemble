@@ -20,6 +20,9 @@
     "launch": "node scripts/collab-launch.mjs",
     "bridge": "node scripts/ensemble-bridge.mjs",
     "setup": "node scripts/setup-claude-code.mjs",
+    "mcp:install": "node scripts/mcp-install.mjs install",
+    "mcp:uninstall": "node scripts/mcp-install.mjs uninstall",
+    "mcp:status": "node scripts/mcp-install.mjs status",
     "test": "vitest run",
     "postinstall": "cd web && npm install --ignore-scripts 2>/dev/null || true"
   },
