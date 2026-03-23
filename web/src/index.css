@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+
+/* ── Theme tokens (OKLch color space, dark-first) ────────────── */
+
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-fg);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-fg);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-fg);
+  --color-destructive: var(--destructive);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-fg);
+
+  /* Agent identity colors */
+  --color-agent-codex: var(--agent-codex);
+  --color-agent-claude: var(--agent-claude);
+  --color-agent-gemini: var(--agent-gemini);
+  --color-agent-aider: var(--agent-aider);
+  --color-agent-default: var(--agent-default);
+
+  /* Radii */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
+
+/* Dark mode (default) */
+:root {
+  --bg: oklch(0.18 0.005 260);
+  --fg: oklch(0.93 0 0);
+  --card: oklch(0.22 0.005 260);
+  --card-fg: oklch(0.93 0 0);
+  --muted: oklch(0.27 0.005 260);
+  --muted-fg: oklch(0.58 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --border-strong: oklch(1 0 0 / 18%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.55 0 0);
+  --primary: oklch(0.65 0.19 250);
+  --primary-fg: oklch(0.98 0 0);
+  --destructive: oklch(0.65 0.2 25);
+  --accent: oklch(0.27 0.005 260);
+  --accent-fg: oklch(0.93 0 0);
+
+  /* Agent colors */
+  --agent-codex: oklch(0.65 0.19 250);
+  --agent-claude: oklch(0.72 0.19 155);
+  --agent-gemini: oklch(0.80 0.16 85);
+  --agent-aider: oklch(0.65 0.22 310);
+  --agent-default: oklch(0.55 0 0);
+
+  /* Status palette */
+  --status-active: oklch(0.72 0.19 155);
+  --status-forming: oklch(0.65 0.19 250);
+  --status-paused: oklch(0.80 0.16 85);
+  --status-completed: oklch(0.55 0 0);
+  --status-disbanded: oklch(0.55 0 0);
+  --status-failed: oklch(0.65 0.2 25);
+  --status-spawning: oklch(0.65 0.19 250);
+  --status-idle: oklch(0.80 0.16 85);
+  --status-done: oklch(0.55 0 0);
+
+  color-scheme: dark;
+}
+
+/* ── Base layer ──────────────────────────────────────────────── */
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    @apply border-border;
+  }
+
+  html {
+    @apply font-sans;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+  }
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 12%);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 20%);
+  }
+}
+
+/* ── Utility: status badge colors ────────────────────────────── */
+
+@layer utilities {
+  .status-active   { color: var(--status-active);    background: oklch(0.72 0.19 155 / 10%); }
+  .status-forming  { color: var(--status-forming);   background: oklch(0.65 0.19 250 / 10%); }
+  .status-paused   { color: var(--status-paused);    background: oklch(0.80 0.16 85  / 10%); }
+  .status-completed{ color: var(--status-completed); background: oklch(0.55 0 0     / 10%); }
+  .status-disbanded{ color: var(--status-disbanded); background: oklch(0.55 0 0     / 10%); }
+  .status-failed   { color: var(--status-failed);    background: oklch(0.65 0.2 25  / 10%); }
+  .status-spawning { color: var(--status-spawning);  background: oklch(0.65 0.19 250 / 10%); }
+  .status-idle     { color: var(--status-idle);       background: oklch(0.80 0.16 85  / 10%); }
+  .status-done     { color: var(--status-done);       background: oklch(0.55 0 0     / 10%); }
+}
+
+/* ── Keyframes ───────────────────────────────────────────────── */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

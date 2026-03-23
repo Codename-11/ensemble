@@ -6,7 +6,9 @@
     "readyMarker": "›",
     "inputMethod": "pasteFromFile",
     "color": "blue",
-    "icon": "◆"
+    "icon": "◆",
+    "mcpMode": "config-file",
+    "mcpConfigFlag": "--mcp-config"
   },
   "claude": {
     "name": "claude",
@@ -15,7 +17,9 @@
     "readyMarker": "❯",
     "inputMethod": "sendKeys",
     "color": "green",
-    "icon": "●"
+    "icon": "●",
+    "mcpMode": "config-file",
+    "mcpConfigFlag": "--mcp-config"
   },
   "aider": {
     "name": "aider",

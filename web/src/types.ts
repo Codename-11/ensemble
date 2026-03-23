@@ -1,3 +1,5 @@
+/** Mirror of backend types for the web client */
+
 export interface EnsembleTeam {
   id: string
   name: string
@@ -43,43 +45,27 @@ export interface EnsembleMessage {
   options?: string[]
 }
 
-export interface CreateTeamRequest {
-  name: string
-  description: string
-  agents: Array<{
-    program: string
-    role?: string
-    hostId?: string
-  }>
-  feedMode?: 'silent' | 'summary' | 'live'
-  workingDirectory?: string
-  templateName?: string
-  useWorktrees?: boolean
-  staged?: boolean
-  stagedConfig?: StagedWorkflowConfig
-}
-
-export type StagedPhase = 'plan' | 'exec' | 'verify'
-
-export interface StagedWorkflowConfig {
-  planTimeoutMs?: number   // Max time for PLAN phase before auto-advancing (default: 120000 = 2min)
-  execTimeoutMs?: number   // Max time for EXEC phase before auto-advancing (default: 300000 = 5min)
-  verifyTimeoutMs?: number // Max time for VERIFY phase before completing (default: 120000 = 2min)
-  pollIntervalMs?: number  // How often to check for phase completion (default: 5000 = 5s)
-}
-
-export interface CollabTemplateRole {
-  role: string
-  focus: string
-}
-
-export interface CollabTemplate {
+export interface CollabTemplateSummary {
+  id: string
   name: string
   description: string
   suggestedTaskPrefix: string
-  roles: CollabTemplateRole[]
+  roles: string[]
 }
 
-export interface CollabTemplatesFile {
-  templates: Record<string, CollabTemplate>
+export interface EnsembleServerInfo {
+  cwd: string
+  agents: Array<{
+    id: string
+    name: string
+    color: string
+    icon: string
+  }>
+  templates: CollabTemplateSummary[]
+  launchDefaults?: {
+    minAgents: number
+    maxAgents: number
+    feedMode: EnsembleTeam['feedMode']
+  }
+  recentDirectories: string[]
 }

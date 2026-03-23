@@ -9,9 +9,12 @@
  *   ensemble monitor                   # Interactive team picker
  */
 
-import http from 'http'
+import os from 'os'
+import path from 'path'
 import readline from 'readline'
 import { resolveAgentProgram } from '../lib/agent-config'
+import { EnsembleClient } from '../lib/ensemble-client'
+import type { EnsembleTeam, EnsembleMessage } from '../lib/ensemble-client'
 
 // ─────────────────────────── ANSI ESCAPE CODES ───────────────────────────
 
@@ -98,79 +101,28 @@ function getAgentStyle(name: string): AgentStyle {
   return { ...style, icon: program.icon }
 }
 
-// ─────────────────────────── API CLIENT ──────────────────────────────────
+// ─────────────────────────── API BASE (for team picker / main) ───────────
 
 const API_BASE = process.env.ENSEMBLE_URL || 'http://localhost:23000'
-
-function apiGet<T>(path: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(path, API_BASE)
-    http.get(url.toString(), { timeout: 5000 }, (res) => {
-      let data = ''
-      res.on('data', chunk => data += chunk)
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)) }
-        catch (e) { reject(e) }
-      })
-    }).on('error', reject)
-  })
-}
-
-function apiPost<T>(path: string, body: unknown): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(path, API_BASE)
-    const payload = JSON.stringify(body)
-    const req = http.request(url.toString(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
-      timeout: 5000,
-    }, (res) => {
-      let data = ''
-      res.on('data', chunk => data += chunk)
-      res.on('end', () => {
-        try { resolve(JSON.parse(data)) }
-        catch (e) { reject(e) }
-      })
-    })
-    req.on('error', reject)
-    req.write(payload)
-    req.end()
-  })
-}
-
-// ─────────────────────────── TYPES ───────────────────────────────────────
-
-interface Team {
-  id: string
-  name: string
-  description: string
-  status: string
-  agents: Array<{ name: string; program: string; role: string; status: string }>
-  createdAt: string
-}
-
-interface Message {
-  id: string
-  from: string
-  to: string
-  content: string
-  timestamp: string
-  type: string
-}
 
 // ─────────────────────────── TUI RENDERER ────────────────────────────────
 
 class Monitor {
-  private team: Team | null = null
-  private messages: Message[] = []
+  private readonly client: EnsembleClient
+  private team: EnsembleTeam | null = null
+  private messages: EnsembleMessage[] = []
   private lastMessageCount = 0
-  private readonly MAX_MESSAGES = 1000
-  private lastSeenTimestamp: string | null = null
   private scrollOffset = 0
   private inputMode = false
   private inputBuffer = ''
   private inputTarget = 'team'
-  private pollInterval: ReturnType<typeof setInterval> | null = null
+  private inputHistory: string[] = []
+  private historyIndex = -1
+  private inputSavedBuffer = ''
+  private sendConfirmation: string | null = null
+  private sendError: string | null = null
+  private sending = false
+  private inputPaneHighlight = false
   private cols = process.stdout.columns || 120
   private rows = process.stdout.rows || 40
   private startTime = Date.now()
@@ -179,6 +131,8 @@ class Monitor {
   private showInlineSummary = false
   private idleSuppressedUntil = 0
   private readonly IDLE_THRESHOLD_MS = 60_000
+  private connecting = true
+  private reconnecting = false
 
   private readonly completionMenuOptions = [
     { label: 'Show summary', icon: '📋' },
@@ -187,7 +141,9 @@ class Monitor {
     { label: 'Disband team', icon: '✕' },
   ]
 
-  constructor(private teamId: string) {}
+  constructor(private teamId: string) {
+    this.client = new EnsembleClient(teamId)
+  }
 
   async start() {
     // Setup terminal
@@ -207,74 +163,63 @@ class Monitor {
     // Handle input
     process.stdin.on('data', (key: string) => this.handleInput(key))
 
-    // Initial fetch
-    await this.fetchTeam()
-    await this.fetchMessages()
+    // Show loading state before first fetch
+    this.connecting = true
     this.render()
 
-    // Poll every 2 seconds
-    this.pollInterval = setInterval(async () => {
-      try {
-        await this.fetchTeam()
-        await this.fetchMessages()
-        if (this.messages.length !== this.lastMessageCount) {
-          this.lastMessageCount = this.messages.length
-          this.scrollOffset = 0 // auto-scroll to bottom
-          // Dismiss completion menu when new activity arrives
-          if (this.completionMenuActive) {
-            this.completionMenuActive = false
-            this.completionMenuSelection = 0
-          }
-          this.render()
-        } else if (
-          !this.completionMenuActive &&
-          !this.inputMode &&
-          !this.showInlineSummary &&
-          this.messages.length > 0
-        ) {
-          // Check idle based on last agent message timestamp
-          const lastAgentMsg = this.getLastAgentMessageTime()
-          const now = Date.now()
-          if (lastAgentMsg > 0 && now - lastAgentMsg >= this.IDLE_THRESHOLD_MS && now > this.idleSuppressedUntil) {
-            this.completionMenuActive = true
-            this.completionMenuSelection = 0
-            this.render()
-          }
+    // Subscribe to client events
+    this.client.on('team', (team: EnsembleTeam) => {
+      this.team = team
+    })
+
+    this.client.on('messages', (messages: EnsembleMessage[], _newCount: number) => {
+      this.messages = messages
+
+      // Clear transient connection states on success
+      const wasReconnecting = this.reconnecting || this.connecting
+      this.reconnecting = false
+      this.connecting = false
+
+      if (this.messages.length !== this.lastMessageCount) {
+        this.lastMessageCount = this.messages.length
+        this.scrollOffset = 0 // auto-scroll to bottom
+        // Dismiss completion menu when new activity arrives
+        if (this.completionMenuActive) {
+          this.completionMenuActive = false
+          this.completionMenuSelection = 0
         }
-      } catch { /* connection lost, will retry */ }
-    }, 2000)
+        this.render()
+      } else if (wasReconnecting) {
+        // Re-render to clear the reconnecting indicator
+        this.render()
+      } else if (
+        !this.completionMenuActive &&
+        !this.inputMode &&
+        !this.showInlineSummary &&
+        this.messages.length > 0
+      ) {
+        // Check idle based on last agent message timestamp
+        const lastAgentMsg = this.getLastAgentMessageTime()
+        const now = Date.now()
+        if (lastAgentMsg > 0 && now - lastAgentMsg >= this.IDLE_THRESHOLD_MS && now > this.idleSuppressedUntil) {
+          this.completionMenuActive = true
+          this.completionMenuSelection = 0
+          this.render()
+        }
+      }
+    })
+
+    this.client.on('error', () => {
+      // Connection lost — show reconnecting indicator and retry on next poll
+      this.reconnecting = true
+      this.render()
+    })
+
+    // Start polling (the client handles initial fetch + interval internally)
+    this.client.start(2000)
   }
 
-  private async fetchTeam() {
-    const data = await apiGet<{ team: Team }>(`/api/ensemble/teams/${this.teamId}`)
-    this.team = data.team
-  }
-
-  private async fetchMessages() {
-    const sinceParam = this.lastSeenTimestamp ? `?since=${encodeURIComponent(this.lastSeenTimestamp)}` : ''
-    const data = await apiGet<{ messages: Message[] }>(`/api/ensemble/teams/${this.teamId}/feed${sinceParam}`)
-    const newMessages = data.messages || []
-
-    if (this.lastSeenTimestamp && newMessages.length > 0) {
-      // Incremental: append only new messages
-      this.messages.push(...newMessages)
-    } else if (!this.lastSeenTimestamp) {
-      // Initial fetch: take all
-      this.messages = newMessages
-    }
-
-    // Update cursor to latest timestamp
-    if (this.messages.length > 0) {
-      this.lastSeenTimestamp = this.messages[this.messages.length - 1].timestamp
-    }
-
-    // Cap buffer to prevent unbounded growth
-    if (this.messages.length > this.MAX_MESSAGES) {
-      this.messages = this.messages.slice(-this.MAX_MESSAGES)
-    }
-  }
-
-  private handleInput(key: string) {
+  private async handleInput(key: string) {
     // Ctrl+C — exit
     if (key === '\x03') {
       this.cleanup()
@@ -313,15 +258,77 @@ class Monitor {
         // Escape — cancel input
         this.inputMode = false
         this.inputBuffer = ''
+        this.historyIndex = -1
+        this.inputSavedBuffer = ''
         this.render()
       } else if (key === '\r' || key === '\n') {
-        // Enter — send message
+        // Enter — send message (await POST before confirming)
         if (this.inputBuffer.trim()) {
-          this.sendMessage(this.inputBuffer.trim())
+          const msg = this.inputBuffer.trim()
+          const targetLabel = this.inputTarget === 'team' ? 'team' : this.inputTarget
+          // Add to history (keep last 20)
+          this.inputHistory.push(msg)
+          if (this.inputHistory.length > 20) {
+            this.inputHistory.shift()
+          }
+          // Show sending state while POST is in-flight
+          this.sending = true
+          this.inputMode = false
+          this.inputBuffer = ''
+          this.historyIndex = -1
+          this.inputSavedBuffer = ''
+          this.render()
+          // Await the actual send
+          const ok = await this.sendMessage(msg)
+          this.sending = false
+          if (ok) {
+            this.sendConfirmation = targetLabel
+            this.sendError = null
+          } else {
+            this.sendError = targetLabel
+            this.sendConfirmation = null
+          }
+          this.render()
+          // Clear feedback after 1.5s
+          setTimeout(() => {
+            this.sendConfirmation = null
+            this.sendError = null
+            this.render()
+          }, 1500)
+        } else {
+          this.inputMode = false
+          this.inputBuffer = ''
+          this.historyIndex = -1
+          this.inputSavedBuffer = ''
+          this.render()
         }
-        this.inputMode = false
-        this.inputBuffer = ''
-        this.render()
+      } else if (key === '\x1b[A') {
+        // Up arrow — recall previous history entry
+        if (this.inputHistory.length > 0) {
+          if (this.historyIndex === -1) {
+            // Save current input before browsing history
+            this.inputSavedBuffer = this.inputBuffer
+            this.historyIndex = this.inputHistory.length - 1
+          } else if (this.historyIndex > 0) {
+            this.historyIndex--
+          }
+          this.inputBuffer = this.inputHistory[this.historyIndex]
+          this.render()
+        }
+      } else if (key === '\x1b[B') {
+        // Down arrow — go forward in history
+        if (this.historyIndex !== -1) {
+          if (this.historyIndex < this.inputHistory.length - 1) {
+            this.historyIndex++
+            this.inputBuffer = this.inputHistory[this.historyIndex]
+          } else {
+            // Past end of history — restore saved buffer
+            this.historyIndex = -1
+            this.inputBuffer = this.inputSavedBuffer
+            this.inputSavedBuffer = ''
+          }
+          this.render()
+        }
       } else if (key === '\x7f') {
         // Backspace
         this.inputBuffer = this.inputBuffer.slice(0, -1)
@@ -339,24 +346,21 @@ class Monitor {
         this.inputMode = true
         this.inputTarget = 'team'
         this.inputBuffer = ''
+        this.inputPaneHighlight = true
+        this.historyIndex = -1
         this.render()
         break
-      case '1': case '2': case '3': case '4':
-        // Send to specific agent
-        if (this.team?.agents) {
-          const idx = parseInt(key) - 1
-          if (idx < this.team.agents.length) {
-            this.inputMode = true
-            this.inputTarget = this.team.agents[idx].name
-            this.inputBuffer = ''
-            this.render()
-          }
-        }
-        break
-      case 'k': case '\x1b[A': // Up
-        this.scrollOffset = Math.min(this.scrollOffset + 3, Math.max(0, this.messages.length - 5))
+      case 'k': case '\x1b[A': { // Up
+        const rendered = this.getRenderedLines(this.cols)
+        const headerH = 4
+        const completionH = this.completionMenuActive ? 8 : 0
+        const footerH = this.inputMode ? (2 + this.getInputPaneLineCount() + 3) : (this.sendConfirmation ? 3 : 2)
+        const msgAreaH = this.rows - headerH - footerH - completionH
+        const maxScroll = Math.max(0, rendered.length - msgAreaH)
+        this.scrollOffset = Math.min(this.scrollOffset + 3, maxScroll)
         this.render()
         break
+      }
       case 'j': case '\x1b[B': // Down
         this.scrollOffset = Math.max(0, this.scrollOffset - 3)
         this.render()
@@ -369,40 +373,53 @@ class Monitor {
         // Disband team
         this.disbandTeam()
         break
+      default: {
+        // Send to specific agent via number keys (1-9)
+        const num = parseInt(key)
+        if (!isNaN(num) && num >= 1 && num <= 9 && this.team?.agents) {
+          const idx = num - 1
+          if (idx < this.team.agents.length) {
+            this.inputMode = true
+            this.inputTarget = this.team.agents[idx].name
+            this.inputBuffer = ''
+            this.inputPaneHighlight = true
+            this.historyIndex = -1
+            this.render()
+          }
+        }
+        break
+      }
     }
   }
 
-  private async sendMessage(content: string) {
+  private async sendMessage(content: string): Promise<boolean> {
     try {
-      await apiPost(`/api/ensemble/teams/${this.teamId}`, {
-        from: 'user',
-        to: this.inputTarget,
-        content,
-      })
-      // Immediately fetch new messages
-      await this.fetchMessages()
+      await this.client.sendMessage(content, this.inputTarget)
+      // Client fetches messages internally; sync local state
+      this.messages = this.client.getMessages()
       this.render()
-    } catch (err) {
-      // Will show in next render
+      return true
+    } catch {
+      return false
     }
   }
 
   private async disbandTeam() {
     try {
-      // Fetch final messages BEFORE disbanding
-      await this.fetchMessages()
-      await apiPost(`/api/ensemble/teams/${this.teamId}/disband`, {})
+      await this.client.disbandTeam()
+      // Sync local state after disband
+      this.messages = this.client.getMessages()
 
       // Save summary to file — the main Claude session will present it
       const agentMsgs = this.messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
       const agents = [...new Set(agentMsgs.map(m => m.from))]
       const duration = this.formatDuration(Date.now() - this.startTime)
 
-      const summaryFile = `/tmp/collab-summary-${this.teamId}.txt`
+      const summaryFile = path.join(os.tmpdir(), `collab-summary-${this.teamId}.txt`)
       const summaryText = agents.map(agent => {
         const msgs = agentMsgs.filter(m => m.from === agent)
-        const first = msgs[0]?.content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim() || ''
-        const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim() || ''
+        const first = msgs[0]?.content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim() || ''
+        const last = msgs[msgs.length - 1]?.content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim() || ''
         return `${agent} (${msgs.length} msgs):\n  Start: ${first.slice(0, 300)}\n  End: ${last.slice(0, 500)}`
       }).join('\n\n')
 
@@ -439,6 +456,8 @@ class Monitor {
         this.inputMode = true
         this.inputTarget = 'team'
         this.inputBuffer = ''
+        this.inputPaneHighlight = true
+        this.historyIndex = -1
         this.render()
         break
       case 3: // Disband team
@@ -448,7 +467,7 @@ class Monitor {
   }
 
   private cleanup() {
-    if (this.pollInterval) clearInterval(this.pollInterval)
+    this.client.stop()
     process.stdout.write(cursor.show)
     process.stdout.write(cursor.clearScreen)
     process.stdout.write(cursor.home)
@@ -477,7 +496,11 @@ class Monitor {
     // ── Inline Summary (replaces messages area when active) ──
     const headerHeight = 4
     const completionMenuHeight = this.completionMenuActive ? 8 : 0
-    const footerHeight = this.inputMode ? 4 : 3
+    // Input pane: separator (1) + top border (1) + content lines + bottom border (1) + history hint (1) + keybindings = variable
+    // Normal footer: separator (1) + hint line (1) = 2
+    // Send confirmation/error/sending footer: separator (1) + status (1) + hint line (1) = 3
+    const inputPaneLines = this.inputMode ? this.getInputPaneLineCount() : 0
+    const footerHeight = this.inputMode ? (2 + inputPaneLines + 3) : ((this.sendConfirmation || this.sendError || this.sending) ? 3 : 2)
     const messageAreaHeight = h - headerHeight - footerHeight - completionMenuHeight
 
     if (this.showInlineSummary) {
@@ -524,6 +547,13 @@ class Monitor {
       `${color.gray}${rightInfo}${color.reset}`
     )
 
+    // Connection status indicator
+    if (this.connecting) {
+      lines.push(`${color.yellow}${color.bold}  ⏳ Connecting to team...${color.reset}`)
+    } else if (this.reconnecting) {
+      lines.push(`${color.yellow}${color.bold}  ⚡ Reconnecting...${color.reset}`)
+    }
+
     // Description
     if (this.team?.description) {
       const desc = this.team.description.length > w - 4
@@ -556,15 +586,20 @@ class Monitor {
     return parts.join('    ') + '\n'
   }
 
-  private renderMessages(w: number, maxLines: number): string {
-    const lines: string[] = []
+  /** Shared helper: render all visible messages into terminal lines.
+   *  Both renderMessages() and scroll-bound calculation use this so they can never diverge. */
+  private getRenderedLines(w: number): string[] {
     const agentMessages = this.messages.filter(m => m.from !== 'ensemble' || m.content.includes('❌'))
-
-    // Calculate visible range
     const totalRendered: string[] = []
     for (const msg of agentMessages) {
       totalRendered.push(...this.renderMessage(msg, w))
     }
+    return totalRendered
+  }
+
+  private renderMessages(w: number, maxLines: number): string {
+    const lines: string[] = []
+    const totalRendered = this.getRenderedLines(w)
 
     const start = Math.max(0, totalRendered.length - maxLines - this.scrollOffset)
     const visible = totalRendered.slice(start, start + maxLines)
@@ -581,11 +616,11 @@ class Monitor {
     return lines.join('')
   }
 
-  private renderMessage(msg: Message, w: number): string[] {
+  private renderMessage(msg: EnsembleMessage, w: number): string[] {
     const lines: string[] = []
     const style = getAgentStyle(msg.from)
-    const time = new Date(msg.timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    const time = new Date(msg.timestamp).toLocaleTimeString(undefined, {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
     })
 
     // Agent badge
@@ -619,18 +654,25 @@ class Monitor {
     lines.push(`${color.gray}${'─'.repeat(w)}${color.reset}\n`)
 
     if (this.inputMode) {
-      const targetStyle = getAgentStyle(this.inputTarget)
-      lines.push(
-        `${color.bgBlack}${color.brightWhite} ▸ To: ` +
-        `${targetStyle.badge} ${this.inputTarget} ${color.reset}` +
-        `${color.bgBlack} │ ESC cancel │ ENTER send ${color.reset}\n`
-      )
-      lines.push(
-        `${color.brightWhite}  › ${color.reset}${this.inputBuffer}${color.brightWhite}█${color.reset}\n`
-      )
+      lines.push(this.renderInputPane(w))
     } else {
+      // Show sending/confirmation/error state
+      if (this.sending) {
+        lines.push(
+          `${color.yellow}${color.bold}  ⏳ Sending...${color.reset}\n`
+        )
+      } else if (this.sendConfirmation) {
+        lines.push(
+          `${color.brightGreen}${color.bold}  \u2713 Sent to ${this.sendConfirmation}${color.reset}\n`
+        )
+      } else if (this.sendError) {
+        lines.push(
+          `${color.red}${color.bold}  ✗ Failed to send to ${this.sendError}${color.reset}\n`
+        )
+      }
+
       const scrollInfo = this.scrollOffset > 0
-        ? `${color.yellow} ↑${this.scrollOffset}${color.reset} │ `
+        ? `${color.yellow} \u2191${this.scrollOffset}${color.reset} \u2502 `
         : ''
 
       lines.push(
@@ -644,6 +686,122 @@ class Monitor {
     }
 
     return lines.join('')
+  }
+
+  /** Number of content lines the input pane will show (capped at 3). */
+  private getInputPaneLineCount(): number {
+    const boxW = Math.max(30, this.cols - 4)
+    const innerW = boxW - 4
+    const wrapped = this.wrapInputText(this.inputBuffer, innerW - 1)
+    return Math.min(3, Math.max(1, wrapped.length))
+  }
+
+  private renderInputPane(w: number): string {
+    const lines: string[] = []
+    const boxW = Math.max(30, w - 4)
+    const innerW = boxW - 4 // account for "│ " and " │"
+
+    // Target label and style
+    const targetLabel = this.inputTarget === 'team' ? 'team' : this.inputTarget
+    const targetStyle = getAgentStyle(this.inputTarget === 'team' ? 'user' : this.inputTarget)
+    const targetColored = this.inputTarget === 'team'
+      ? `${color.brightCyan}${targetLabel}${color.reset}`
+      : `${targetStyle.text}${targetLabel}${color.reset}`
+
+    // Box highlight color (brief flash on entry)
+    const boxColor = this.inputPaneHighlight ? color.brightCyan : color.gray
+
+    // Top border with target
+    const topLabel = ` Message to: `
+    // We need to compute the plain length for padding
+    const topLabelPlain = ` Message to: ${targetLabel} `
+    const topBorderRight = Math.max(0, boxW - 2 - topLabelPlain.length)
+    lines.push(
+      `  ${boxColor}\u250c\u2500${color.reset}${boxColor}${topLabel}${color.reset}${targetColored}${boxColor} ` +
+      `${'\u2500'.repeat(topBorderRight)}\u2510${color.reset}\n`
+    )
+
+    // Content lines — show up to 3 wrapped lines so user keeps context
+    const cursorChar = `${color.brightWhite}\u2588${color.reset}`
+    const displayText = this.inputBuffer
+    const wrappedLines = this.wrapInputText(displayText, innerW - 1) // -1 for cursor space
+    const maxVisibleLines = 3
+    const visibleWrapped = wrappedLines.length > maxVisibleLines
+      ? wrappedLines.slice(wrappedLines.length - maxVisibleLines)
+      : wrappedLines.length > 0 ? wrappedLines : ['']
+
+    for (let li = 0; li < visibleWrapped.length; li++) {
+      const isLastLine = li === visibleWrapped.length - 1
+      const lineText = visibleWrapped[li]
+      const lineLen = lineText.length
+      if (isLastLine) {
+        // Last line gets the cursor
+        const contentPad = Math.max(0, innerW - lineLen - 1)
+        lines.push(
+          `  ${boxColor}\u2502${color.reset} ${color.brightWhite}${lineText}${color.reset}${cursorChar}` +
+          `${' '.repeat(contentPad)}${boxColor}\u2502${color.reset}\n`
+        )
+      } else {
+        // Previous lines — no cursor
+        const contentPad = Math.max(0, innerW - lineLen)
+        lines.push(
+          `  ${boxColor}\u2502${color.reset} ${color.brightWhite}${lineText}${color.reset}` +
+          `${' '.repeat(contentPad)}${boxColor}\u2502${color.reset}\n`
+        )
+      }
+    }
+
+    // Bottom border with char count and keybindings
+    const charCount = `${this.inputBuffer.length} chars`
+    const hints = `Esc=cancel  Enter=send`
+    const bottomInfo = ` ${charCount} \u2500\u2500 ${hints} `
+    const bottomBorderLeft = Math.max(0, boxW - 2 - bottomInfo.length)
+    lines.push(
+      `  ${boxColor}\u2514${'\u2500'.repeat(bottomBorderLeft)}${color.reset}` +
+      `${color.dim}${bottomInfo}${color.reset}${boxColor}\u2518${color.reset}\n`
+    )
+
+    // History indicator
+    if (this.historyIndex !== -1) {
+      lines.push(
+        `  ${color.dim}  \u2191\u2193 history (${this.historyIndex + 1}/${this.inputHistory.length})${color.reset}\n`
+      )
+    } else if (this.inputHistory.length > 0) {
+      lines.push(
+        `  ${color.dim}  \u2191 recall previous messages${color.reset}\n`
+      )
+    } else {
+      lines.push(`\n`)
+    }
+
+    // Clear highlight after first render
+    if (this.inputPaneHighlight) {
+      this.inputPaneHighlight = false
+    }
+
+    return lines.join('')
+  }
+
+  private wrapInputText(text: string, width: number): string[] {
+    if (width <= 0) return [text]
+    if (text.length <= width) return [text]
+
+    const lines: string[] = []
+    let remaining = text
+
+    while (remaining.length > 0) {
+      if (remaining.length <= width) {
+        lines.push(remaining)
+        break
+      }
+      // Try to break at a space for clean wrapping
+      let breakAt = remaining.lastIndexOf(' ', width)
+      if (breakAt <= 0) breakAt = width
+      lines.push(remaining.slice(0, breakAt))
+      remaining = remaining.slice(breakAt).trimStart()
+    }
+
+    return lines
   }
 
   private renderCompletionMenu(w: number): string {
@@ -729,14 +887,14 @@ class Monitor {
       )
 
       if (msgs.length > 0) {
-        const first = msgs[0].content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim()
+        const first = msgs[0].content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
         const firstTrunc = first.slice(0, w - 14) + (first.length > w - 14 ? '...' : '')
         lines.push(`  ${color.dim}Start:${color.reset} ${style.text}${firstTrunc}${color.reset}\n`)
       }
       if (msgs.length > 1) {
-        const last = msgs[msgs.length - 1].content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim()
+        const last = msgs[msgs.length - 1].content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
         const lastTrunc = last.slice(0, w - 14) + (last.length > w - 14 ? '...' : '')
-        lines.push(`  ${color.dim}Eind:${color.reset}  ${style.text}${lastTrunc}${color.reset}\n`)
+        lines.push(`  ${color.dim}End:${color.reset}   ${style.text}${lastTrunc}${color.reset}\n`)
       }
       lines.push(`\n`)
     }
@@ -868,8 +1026,8 @@ class Monitor {
 
 async function pickTeam(): Promise<string> {
   try {
-    const data = await apiGet<{ teams: Team[] }>('/api/ensemble/teams')
-    const teams = data.teams.filter(t => t.status === 'active' || t.status === 'forming')
+    const allTeams = await EnsembleClient.fetchTeams()
+    const teams = allTeams.filter(t => t.status === 'active' || t.status === 'forming')
 
     if (teams.length === 0) {
       console.log(`\n${color.yellow}  No active teams found.${color.reset}`)
@@ -929,13 +1087,12 @@ async function main() {
   let teamId: string
 
   if (args[0] === '--latest' || args[0] === '-l') {
-    const data = await apiGet<{ teams: Team[] }>('/api/ensemble/teams')
-    const active = data.teams.filter(t => t.status === 'active' || t.status === 'forming')
-    if (active.length === 0) {
+    const latestId = await EnsembleClient.resolveLatestTeamId()
+    if (!latestId) {
       console.log(`${color.yellow}No active teams.${color.reset}`)
       process.exit(1)
     }
-    teamId = active[active.length - 1].id
+    teamId = latestId
   } else if (args[0] && !args[0].startsWith('-')) {
     teamId = args[0]
   } else {

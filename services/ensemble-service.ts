@@ -5,10 +5,10 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
-import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleTeamAgent, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
-  appendMessage, getMessages,
+  appendMessage, getMessages, deleteTeam as deleteTeamFromRegistry,
 } from '../lib/ensemble-registry'
 import {
   spawnLocalAgent, killLocalAgent,
@@ -26,9 +26,9 @@ import {
   collabBridgeResult, ensureCollabDirs,
 } from '../lib/collab-paths'
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { spawn } from 'child_process'
 import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
 import { runStagedWorkflow } from '../lib/staged-workflow'
 
@@ -107,7 +107,7 @@ class EnsembleService {
         })
 
         await writeDisbandSummary(team.id)
-        await disbandTeam(team.id)
+        await disbandTeam(team.id, 'auto')
       } catch (err) {
         console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
       } finally {
@@ -198,26 +198,20 @@ function sendTelegramSummary(params: {
     agentLine,
   ].join('\n')
 
-  const curl = spawn(
-    'curl',
-    [
-      '-sS',
-      '-X', 'POST',
-      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      '-d', `chat_id=${TELEGRAM_CHAT_ID}`,
-      '-d', `parse_mode=MarkdownV2`,
-      '--data-urlencode', `text=${text}`,
-    ],
-    {
-      detached: true,
-      stdio: 'ignore',
-    },
-  )
-
-  curl.on('error', err => {
-    console.error('[Ensemble] Failed to start Telegram notification:', err)
+  // Use native fetch (Node 18+) instead of curl for cross-platform support
+  const body = new URLSearchParams({
+    chat_id: TELEGRAM_CHAT_ID,
+    parse_mode: 'MarkdownV2',
+    text,
   })
-  curl.unref()
+
+  fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  }).catch(err => {
+    console.error('[Ensemble] Telegram notification failed:', err)
+  })
 }
 
 async function routeToHost(_program: string, preferredHostId?: string): Promise<string> {
@@ -248,6 +242,33 @@ export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['
   }
 }
 
+export interface CollabTemplateSummary {
+  id: string
+  name: string
+  description: string
+  suggestedTaskPrefix: string
+  roles: string[]
+}
+
+export function listCollabTemplates(): CollabTemplateSummary[] {
+  try {
+    const templatesPath = path.join(__dirname, '..', 'collab-templates.json')
+    const raw = fs.readFileSync(templatesPath, 'utf-8')
+    const data: CollabTemplatesFile = JSON.parse(raw)
+
+    return Object.entries(data.templates).map(([id, template]) => ({
+      id,
+      name: template.name,
+      description: template.description,
+      suggestedTaskPrefix: template.suggestedTaskPrefix,
+      roles: template.roles.map(role => role.role),
+    }))
+  } catch (err) {
+    console.warn('[Ensemble] Failed to list templates:', err)
+    return []
+  }
+}
+
 export function buildPromptPreview(params: {
   teamId: string
   teamName: string
@@ -256,11 +277,19 @@ export function buildPromptPreview(params: {
   teammateNames: string[]
   agentIndex: number
   templateName?: string
+  useMcp?: boolean
 }): string {
   const template = loadCollabTemplate(params.templateName)
+
+  // Shell command fallback (used when MCP is not available)
   const scriptsDir = path.join(__dirname, '..', 'scripts')
-  const teamSayCmd = `${scriptsDir}/team-say.sh ${params.teamId} ${params.agentName} ${params.teammateNames[0] || 'team'}`
-  const teamReadCmd = `${scriptsDir}/team-read.sh ${params.teamId}`
+  const isWindows = os.platform() === 'win32'
+  const teamSayCmd = isWindows
+    ? `node ${scriptsDir}\\team-say.mjs ${params.teamId} ${params.agentName} ${params.teammateNames[0] || 'team'}`
+    : `${scriptsDir}/team-say.sh ${params.teamId} ${params.agentName} ${params.teammateNames[0] || 'team'}`
+  const teamReadCmd = isWindows
+    ? `node ${scriptsDir}\\team-read.mjs ${params.teamId}`
+    : `${scriptsDir}/team-read.sh ${params.teamId}`
 
   let roleInstructions: string[]
 
@@ -288,18 +317,34 @@ export function buildPromptPreview(params: {
         ]
   }
 
+  // Communication instructions depend on whether MCP tools are available
+  const commInstructions = params.useMcp
+    ? [
+        `COMMUNICATION: You have team_say and team_read tools available via MCP. Use team_say to send messages and team_read to check for responses. Do NOT use shell commands for communication — use the MCP tools directly. They are faster and more reliable.`,
+        `1. IMMEDIATELY greet your teammate with team_say — do this FIRST before any reading or analysis.`,
+        `2. Communicate FREQUENTLY — share progress every 1-2 minutes, not just when done.`,
+        `3. After EVERY team_say, run team_read to check for responses.`,
+        `4. If teammate shared findings, RESPOND to them before continuing your own work.`,
+        `5. Keep alternating: greet, plan, analyze, share, read, respond, analyze.`,
+      ]
+    : [
+        // Fallback: shell command instructions (backward compat when MCP is not configured)
+        `COMMUNICATION RULES:`,
+        `1. IMMEDIATELY greet your teammate with team-say — do this FIRST before any reading or analysis.`,
+        `2. Send findings: ${teamSayCmd} "your message"`,
+        `3. Read teammate messages: ${teamReadCmd}`,
+        `4. Communicate FREQUENTLY — share progress every 1-2 minutes, not just when done.`,
+        `5. After EVERY team-say, run team-read to check for responses.`,
+        `6. If teammate shared findings, RESPOND to them before continuing your own work.`,
+        `7. Keep alternating: greet, plan, analyze, share, read, respond, analyze.`,
+      ]
+
   return [
     `You are ${params.agentName} in team "${params.teamName}" with teammate ${params.teammateNames.join(', ')}.`,
     `Task: ${params.description}`,
     ...roleInstructions,
-    `COMMUNICATION RULES:`,
-    `1. Send findings: ${teamSayCmd} "your message"`,
-    `2. Read teammate messages: ${teamReadCmd}`,
-    `3. After EVERY analysis step, run team-say to share what you found`,
-    `4. After EVERY team-say, run team-read to check for responses`,
-    `5. If teammate shared findings, RESPOND to them`,
-    `6. Keep alternating: analyze, share, read, respond, analyze`,
-    `Start NOW: greet your teammate with team-say, then begin.`,
+    ...commInstructions,
+    `START NOW: Run team${params.useMcp ? '_say' : '-say'} to greet your teammate, then begin work.`,
   ].join(' ')
 }
 
@@ -307,261 +352,420 @@ export async function createEnsembleTeam(
   request: CreateTeamRequest
 ): Promise<ServiceResult<{ team: EnsembleTeam }>> {
   const team = createTeam(request)
-  const cwd = request.workingDirectory || process.cwd()
-  const worktreeMap = new Map<string, WorktreeInfo>()
 
-  // Phase 0: Create worktrees for local agents if requested
-  if (request.useWorktrees) {
-    for (let i = 0; i < team.agents.length; i++) {
-      const agentSpec = team.agents[i]
-      const hostId = request.agents[i].hostId
-        ? (getHostById(request.agents[i].hostId!) ? request.agents[i].hostId! : getSelfHostId())
-        : getSelfHostId()
+  // Return immediately with the team in "forming" state.
+  // Spawn agents in the background (no await) so the HTTP response is not blocked.
+  void spawnTeamAgents(team, request)
 
-      // Only create worktrees for local agents
-      if (isSelf(hostId)) {
-        try {
-          const worktreeInfo = await createWorktree(team.id, agentSpec.name, cwd)
-          worktreeMap.set(agentSpec.name, worktreeInfo)
-          team.agents[i].worktreePath = worktreeInfo.path
-          team.agents[i].worktreeBranch = worktreeInfo.branch
-          appendMessage(team.id, {
-            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-            content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
-            type: 'chat', timestamp: new Date().toISOString(),
-          })
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
-          appendMessage(team.id, {
-            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-            content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
-            type: 'chat', timestamp: new Date().toISOString(),
-          })
-        }
-      }
-    }
+  return { data: { team }, status: 201 }
+}
+
+/**
+ * Add a new agent to an already-running team.
+ * The agent gets MCP configured, receives recent message context, and joins mid-collaboration.
+ */
+export async function addAgentToTeam(
+  teamId: string,
+  program: string,
+  role?: string,
+): Promise<ServiceResult<{ agent: EnsembleTeamAgent }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+  if (team.status !== 'active' && team.status !== 'forming') {
+    return { error: 'Can only add agents to active teams', status: 400 }
   }
 
-  const buildPrompt = (agentName: string, otherNames: string[], agentIndex: number) => {
-    return buildPromptPreview({
-      teamId: team.id,
-      teamName: team.name,
-      description: team.description,
-      agentName,
-      teammateNames: otherNames,
-      agentIndex,
-      templateName: request.templateName,
+  // Determine agent name (program-N where N is next available number)
+  const programBase = program.toLowerCase().replace(/\s+/g, '-').split('-')[0]
+  const existingNumbers = team.agents
+    .filter(a => a.program === program || a.name.startsWith(programBase))
+    .map(a => {
+      const parts = a.name.split('-')
+      return parseInt(parts[parts.length - 1] || '0', 10)
     })
-  }
+  const nextNum = Math.max(0, ...existingNumbers) + 1
+  const shortName = `${programBase}-${nextNum}`
 
-  // Phase 1: Spawn all agents
-  for (let i = 0; i < team.agents.length; i++) {
-    const agentSpec = team.agents[i]
-    const hostId = await routeToHost(agentSpec.program, request.agents[i].hostId)
-    const agentName = `${team.name}-${agentSpec.name}`
-    const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name), i)
+  const agentName = `${team.name}-${shortName}`
+  const cwd = team.agents[0]?.worktreePath || process.cwd()
 
-    ensureCollabDirs(team.id)
-    const promptFile = collabPromptFile(team.id, agentSpec.name)
-    fs.writeFileSync(promptFile, prompt)
-    console.log(`[Ensemble] Prompt for ${agentSpec.name}: ${prompt}`)
+  // Build prompt with team context — include recent messages so the new agent has context
+  const otherNames = team.agents.map(a => a.name)
+  const prompt = buildPromptPreview({
+    teamId: team.id,
+    teamName: team.name,
+    description: team.description,
+    agentName: shortName,
+    teammateNames: otherNames,
+    agentIndex: team.agents.length, // worker role
+    useMcp: (process.env.ENSEMBLE_COMM_MODE || 'mcp') === 'mcp',
+  })
 
-    try {
-      let agentId: string
-      console.log(`[Ensemble] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
+  // Add recent message context to the prompt so the agent can catch up
+  const recentMessages = getMessages(teamId).slice(-10)
+  const contextSummary = recentMessages
+    .filter(m => m.from !== 'ensemble')
+    .map(m => `${m.from}: ${m.content.slice(0, 200)}`)
+    .join('\n')
+  const fullPrompt = `${prompt}\n\nCATCH-UP CONTEXT — here are the last messages from the team:\n${contextSummary}\n\nYou are joining mid-conversation. Read the context above, greet the team, and contribute.`
 
-      if (isSelf(hostId)) {
-        const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
-        const spawned = await spawnLocalAgent({
-          name: agentName,
-          program: agentSpec.program,
-          workingDirectory: agentCwd,
-          hostId,
-        })
-        agentId = spawned.id
-      } else {
-        const host = getHostById(hostId)
-        if (!host) throw new Error(`Unknown host: ${hostId}`)
-        const remote = await spawnRemote(host.url, agentName, agentSpec.program, cwd, team.description, team.name)
-        agentId = remote.id
-      }
+  const apiUrl = process.env.ENSEMBLE_URL || 'http://localhost:23000'
 
-      team.agents[i].agentId = agentId
-      team.agents[i].hostId = hostId
-      team.agents[i].status = 'active'
+  // Spawn the agent
+  try {
+    const spawned = await spawnLocalAgent({
+      name: agentName,
+      program,
+      workingDirectory: cwd,
+      teamId: team.id,
+      apiUrl,
+    })
 
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `${agentSpec.name} (${agentSpec.program} @ ${hostId}) has joined #${team.name}`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.error(`[Ensemble] Failed to spawn ${agentName}:`, message)
-      team.agents[i].status = 'idle'
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `Failed to spawn ${agentName}: ${message}`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
+    // Build the new agent record
+    const newAgent: EnsembleTeamAgent = {
+      agentId: spawned.id,
+      name: shortName,
+      program,
+      role: role || 'worker',
+      hostId: spawned.hostId,
+      status: 'active',
     }
-  }
+    team.agents.push(newAgent)
+    updateTeam(teamId, { agents: team.agents })
 
-  updateTeam(team.id, { ...team, status: 'active' })
+    // Announce
+    appendMessage(teamId, {
+      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      content: `${shortName} (${program}) has joined the team`,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
 
-  // Phase 2: Wait for ALL agents to be ready, then inject prompts
-  const activeAgents = team.agents.filter(a => a.status === 'active')
-  if (activeAgents.length >= 2) {
-    const runtime = getRuntime()
-
-    const waitForReady = async (
-      sessionName: string, program: string, hostId?: string, maxWait = 60000,
-    ): Promise<boolean> => {
-      const start = Date.now()
+    // Wait for ready, then inject prompt (run in background)
+    void (async () => {
+      const runtime = getRuntime()
       const agentConfig = resolveAgentProgram(program)
-      const readyMarker = agentConfig.readyMarker
-      while (Date.now() - start < maxWait) {
+
+      // Wait for ready
+      const start = Date.now()
+      while (Date.now() - start < 60000) {
         try {
-          if (hostId && !isSelf(hostId)) {
-            const host = getHostById(hostId)
-            if (host && await isRemoteSessionReady(host.url, sessionName)) {
-              console.log(`[Ensemble] ${sessionName} is remotely reachable (${Math.round((Date.now() - start) / 1000)}s)`)
-              return true
-            }
-          } else {
-            const output = await runtime.capturePane(sessionName, 50)
-            if (output.includes(readyMarker)) {
-              console.log(`[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s)`)
-              return true
-            }
-          }
+          const output = await runtime.capturePane(spawned.sessionName, 50)
+          if (output.includes(agentConfig.readyMarker)) break
         } catch { /* not ready yet */ }
         await new Promise(r => setTimeout(r, 1000))
       }
-      console.error(`[Ensemble] ${sessionName} did not become ready within ${maxWait / 1000}s`)
-      return false
-    }
+      await new Promise(r => setTimeout(r, 2000))
 
-    console.log(`[Ensemble] Waiting for all ${activeAgents.length} agents to be ready...`)
-    const readyResults = await Promise.all(
-      activeAgents.map(agent => {
-        const sessionName = `${team.name}-${agent.name}`
-        return waitForReady(sessionName, agent.program, agent.hostId).then(ready => ({ agent, sessionName, ready }))
-      })
-    )
+      // Inject prompt
+      const promptFile = collabPromptFile(teamId, shortName)
+      ensureCollabDirs(teamId)
+      fs.writeFileSync(promptFile, fullPrompt)
+      if (agentConfig.inputMethod === 'pasteFromFile') {
+        await runtime.pasteFromFile(spawned.sessionName, promptFile)
+      } else {
+        await runtime.sendKeys(spawned.sessionName, fullPrompt, { literal: true, enter: true })
+      }
+    })()
 
-    const ready = readyResults.filter(r => r.ready)
-    const notReady = readyResults.filter(r => !r.ready)
+    return { data: { agent: newAgent }, status: 201 }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return { error: `Failed to spawn agent: ${message}`, status: 500 }
+  }
+}
 
-    for (const nr of notReady) {
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `❌ ${nr.agent.name} failed to start — timed out`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-    }
+/**
+ * Background worker that handles the heavy lifting after a team is created:
+ *   Phase 0 — create worktrees (optional)
+ *   Phase 1 — spawn agents
+ *   Phase 2 — wait for agents to be ready
+ *   Phase 3 — inject prompts (or kick off staged workflow)
+ *
+ * The team transitions to "active" on success or "disbanded" if all agents fail.
+ * Progress is reported via the team message feed so SSE/polling clients stay informed.
+ */
+async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): Promise<void> {
+  try {
+    const cwd = request.workingDirectory || process.cwd()
+    const worktreeMap = new Map<string, WorktreeInfo>()
 
-    if (ready.length < 2) {
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `❌ Team start aborted: only ${ready.length}/${activeAgents.length} agents ready`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-      return { data: { team }, status: 201 }
-    }
+    // Phase 0: Create worktrees for local agents if requested
+    if (request.useWorktrees) {
+      for (let i = 0; i < team.agents.length; i++) {
+        const agentSpec = team.agents[i]
+        const hostId = request.agents[i].hostId
+          ? (getHostById(request.agents[i].hostId!) ? request.agents[i].hostId! : getSelfHostId())
+          : getSelfHostId()
 
-    await new Promise(r => setTimeout(r, 2000))
-
-    // Phase 3: Inject prompts (skip if staged — staged workflow handles its own prompts)
-    if (request.staged) {
-      // Staged mode: skip normal prompt injection, run plan→exec→verify workflow
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `🚀 All ${ready.length} agents ready — starting staged workflow (plan → exec → verify)`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-
-      const buildStagedPlanPrompt = (agentName: string, otherNames: string[], agentIndex: number): string => [
-        buildPrompt(agentName, otherNames, agentIndex),
-        `STAGED WORKFLOW MODE.`,
-        `PHASE 1 PLAN: ONLY create and share a plan via team-say.`,
-        `Do NOT write code, edit files, or run mutating commands yet.`,
-        `Both agents must share their plan before implementation begins.`,
-        `After sharing your plan, run team-read and align on the execution approach.`,
-      ].join(' ')
-
-      const buildStagedExecPrompt = (otherNames: string[]): string => [
-        `PHASE 2 EXEC: Planning is complete.`,
-        `You may now execute the agreed plan and make code changes.`,
-        `Share concrete progress via team-say and explicitly report when your implementation is done.`,
-        `Keep coordinating with ${otherNames.join(', ')} as you work.`,
-      ].join(' ')
-
-      const buildStagedVerifyPrompt = (teammateToReview?: string): string => [
-        `PHASE 3 VERIFY: Review ${teammateToReview || 'your teammate'}'s work.`,
-        `Inspect what they changed, compare it against the plan, and report findings via team-say.`,
-        `Focus on bugs, regressions, missing tests, and mismatches with the agreed approach.`,
-      ].join(' ')
-
-      // Run in background so createEnsembleTeam returns immediately
-      runStagedWorkflow(team, request.stagedConfig, {
-        buildPlanPrompt: ({ agent, teammates, index }) => buildStagedPlanPrompt(agent.name, teammates, index),
-        buildExecPrompt: ({ teammates }) => buildStagedExecPrompt(teammates),
-        buildVerifyPrompt: ({ teammateToReview }) => buildStagedVerifyPrompt(teammateToReview),
-      }).catch(err => {
-        const message = err instanceof Error ? err.message : String(err)
-        console.error(`[Ensemble] Staged workflow failed for ${team.id}:`, message)
-        appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-          content: `❌ Staged workflow failed: ${message}`,
-          type: 'chat', timestamp: new Date().toISOString(),
-        })
-      })
-    } else {
-      // Normal mode: inject prompts simultaneously
-      console.log(`[Ensemble] All ${ready.length} agents ready — injecting prompts simultaneously`)
-      await Promise.all(
-        ready.map(async ({ agent, sessionName }) => {
-          const promptFile = collabPromptFile(team.id, agent.name)
+        // Only create worktrees for local agents
+        if (isSelf(hostId)) {
           try {
-            if (agent.hostId && !isSelf(agent.hostId)) {
-              const host = getHostById(agent.hostId)
-              if (host) {
-                const prompt = fs.readFileSync(promptFile, 'utf-8')
-                await postRemoteSessionCommand(host.url, sessionName, prompt)
-              }
-            } else {
-              const agentCfg = resolveAgentProgram(agent.program)
-              if (agentCfg.inputMethod === 'pasteFromFile') {
-                await runtime.pasteFromFile(sessionName, promptFile)
-              } else {
-                const prompt = fs.readFileSync(promptFile, 'utf-8')
-                await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
-              }
-            }
-            console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err)
+            const worktreeInfo = await createWorktree(team.id, agentSpec.name, cwd)
+            worktreeMap.set(agentSpec.name, worktreeInfo)
+            team.agents[i].worktreePath = worktreeInfo.path
+            team.agents[i].worktreeBranch = worktreeInfo.branch
             appendMessage(team.id, {
               id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-              content: `❌ Delivery to ${agent.name} failed: ${message}`,
+              content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
-            console.error(`[Ensemble] ✗ Failed to inject prompt into ${sessionName}:`, err)
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
+            appendMessage(team.id, {
+              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
+              type: 'chat', timestamp: new Date().toISOString(),
+            })
           }
+        }
+      }
+    }
+
+    const apiUrl = process.env.ENSEMBLE_URL || 'http://localhost:23000'
+
+    const buildPrompt = (agentName: string, otherNames: string[], agentIndex: number) => {
+      return buildPromptPreview({
+        teamId: team.id,
+        teamName: team.name,
+        description: team.description,
+        agentName,
+        teammateNames: otherNames,
+        agentIndex,
+        templateName: request.templateName,
+        useMcp: (process.env.ENSEMBLE_COMM_MODE || 'mcp') === 'mcp',
+      })
+    }
+
+    // Phase 1: Spawn all agents
+    for (let i = 0; i < team.agents.length; i++) {
+      const agentSpec = team.agents[i]
+      const hostId = await routeToHost(agentSpec.program, request.agents[i].hostId)
+      const agentName = `${team.name}-${agentSpec.name}`
+      const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name), i)
+
+      ensureCollabDirs(team.id)
+      const promptFile = collabPromptFile(team.id, agentSpec.name)
+      fs.writeFileSync(promptFile, prompt)
+      console.log(`[Ensemble] Prompt for ${agentSpec.name}: ${prompt}`)
+
+      try {
+        let agentId: string
+        console.log(`[Ensemble] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
+
+        if (isSelf(hostId)) {
+          const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
+          const spawned = await spawnLocalAgent({
+            name: agentName,
+            program: agentSpec.program,
+            workingDirectory: agentCwd,
+            hostId,
+            teamId: team.id,
+            apiUrl,
+          })
+          agentId = spawned.id
+        } else {
+          const host = getHostById(hostId)
+          if (!host) throw new Error(`Unknown host: ${hostId}`)
+          const remote = await spawnRemote(host.url, agentName, agentSpec.program, cwd, team.description, team.name)
+          agentId = remote.id
+        }
+
+        team.agents[i].agentId = agentId
+        team.agents[i].hostId = hostId
+        team.agents[i].status = 'active'
+
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `${agentSpec.name} (${agentSpec.program} @ ${hostId}) has joined #${team.name}`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`[Ensemble] Failed to spawn ${agentName}:`, message)
+        team.agents[i].status = 'idle'
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `Failed to spawn ${agentName}: ${message}`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      }
+    }
+
+    // Check if ALL agents failed — if so, mark team as disbanded
+    const activeAgents = team.agents.filter(a => a.status === 'active')
+    if (activeAgents.length === 0) {
+      appendMessage(team.id, {
+        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        content: `❌ All agents failed to spawn — team disbanded`,
+        type: 'chat', timestamp: new Date().toISOString(),
+      })
+      updateTeam(team.id, { ...team, status: 'disbanded', completedAt: new Date().toISOString() })
+      return
+    }
+
+    updateTeam(team.id, { ...team, status: 'active' })
+
+    // Phase 2: Wait for ALL agents to be ready, then inject prompts
+    if (activeAgents.length >= 2) {
+      const runtime = getRuntime()
+
+      const waitForReady = async (
+        sessionName: string, program: string, hostId?: string, maxWait = 60000,
+      ): Promise<boolean> => {
+        const start = Date.now()
+        const agentConfig = resolveAgentProgram(program)
+        const readyMarker = agentConfig.readyMarker
+        while (Date.now() - start < maxWait) {
+          try {
+            if (hostId && !isSelf(hostId)) {
+              const host = getHostById(hostId)
+              if (host && await isRemoteSessionReady(host.url, sessionName)) {
+                console.log(`[Ensemble] ${sessionName} is remotely reachable (${Math.round((Date.now() - start) / 1000)}s)`)
+                return true
+              }
+            } else {
+              const output = await runtime.capturePane(sessionName, 50)
+              if (output.includes(readyMarker)) {
+                console.log(`[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s)`)
+                return true
+              }
+            }
+          } catch { /* not ready yet */ }
+          await new Promise(r => setTimeout(r, 1000))
+        }
+        console.error(`[Ensemble] ${sessionName} did not become ready within ${maxWait / 1000}s`)
+        return false
+      }
+
+      console.log(`[Ensemble] Waiting for all ${activeAgents.length} agents to be ready...`)
+      const readyResults = await Promise.all(
+        activeAgents.map(agent => {
+          const sessionName = `${team.name}-${agent.name}`
+          return waitForReady(sessionName, agent.program, agent.hostId).then(ready => ({ agent, sessionName, ready }))
         })
       )
 
-      appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `🚀 All ${ready.length} agents received their task — collaboration started`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-    }
-  }
+      const ready = readyResults.filter(r => r.ready)
+      const notReady = readyResults.filter(r => !r.ready)
 
-  return { data: { team }, status: 201 }
+      for (const nr of notReady) {
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `❌ ${nr.agent.name} failed to start — timed out`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      }
+
+      if (ready.length < 2) {
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `❌ Team start aborted: only ${ready.length}/${activeAgents.length} agents ready`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+        return
+      }
+
+      await new Promise(r => setTimeout(r, 2000))
+
+      // Phase 3: Inject prompts (skip if staged — staged workflow handles its own prompts)
+      if (request.staged) {
+        // Staged mode: skip normal prompt injection, run plan→exec→verify workflow
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `🚀 All ${ready.length} agents ready — starting staged workflow (plan → exec → verify)`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+
+        const buildStagedPlanPrompt = (agentName: string, otherNames: string[], agentIndex: number): string => [
+          buildPrompt(agentName, otherNames, agentIndex),
+          `STAGED WORKFLOW MODE.`,
+          `PHASE 1 PLAN: ONLY create and share a plan via team-say.`,
+          `Do NOT write code, edit files, or run mutating commands yet.`,
+          `Both agents must share their plan before implementation begins.`,
+          `After sharing your plan, run team-read and align on the execution approach.`,
+        ].join(' ')
+
+        const buildStagedExecPrompt = (otherNames: string[]): string => [
+          `PHASE 2 EXEC: Planning is complete.`,
+          `You may now execute the agreed plan and make code changes.`,
+          `Share concrete progress via team-say and explicitly report when your implementation is done.`,
+          `Keep coordinating with ${otherNames.join(', ')} as you work.`,
+        ].join(' ')
+
+        const buildStagedVerifyPrompt = (teammateToReview?: string): string => [
+          `PHASE 3 VERIFY: Review ${teammateToReview || 'your teammate'}'s work.`,
+          `Inspect what they changed, compare it against the plan, and report findings via team-say.`,
+          `Focus on bugs, regressions, missing tests, and mismatches with the agreed approach.`,
+        ].join(' ')
+
+        // Run in background (fire-and-forget within the already-background spawnTeamAgents)
+        runStagedWorkflow(team, request.stagedConfig, {
+          buildPlanPrompt: ({ agent, teammates, index }) => buildStagedPlanPrompt(agent.name, teammates, index),
+          buildExecPrompt: ({ teammates }) => buildStagedExecPrompt(teammates),
+          buildVerifyPrompt: ({ teammateToReview }) => buildStagedVerifyPrompt(teammateToReview),
+        }).catch(err => {
+          const message = err instanceof Error ? err.message : String(err)
+          console.error(`[Ensemble] Staged workflow failed for ${team.id}:`, message)
+          appendMessage(team.id, {
+            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+            content: `❌ Staged workflow failed: ${message}`,
+            type: 'chat', timestamp: new Date().toISOString(),
+          })
+        })
+      } else {
+        // Normal mode: inject prompts simultaneously
+        console.log(`[Ensemble] All ${ready.length} agents ready — injecting prompts simultaneously`)
+        await Promise.all(
+          ready.map(async ({ agent, sessionName }) => {
+            const promptFile = collabPromptFile(team.id, agent.name)
+            try {
+              if (agent.hostId && !isSelf(agent.hostId)) {
+                const host = getHostById(agent.hostId)
+                if (host) {
+                  const prompt = fs.readFileSync(promptFile, 'utf-8')
+                  await postRemoteSessionCommand(host.url, sessionName, prompt)
+                }
+              } else {
+                const agentCfg = resolveAgentProgram(agent.program)
+                if (agentCfg.inputMethod === 'pasteFromFile') {
+                  await runtime.pasteFromFile(sessionName, promptFile)
+                } else {
+                  const prompt = fs.readFileSync(promptFile, 'utf-8')
+                  await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
+                }
+              }
+              console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err)
+              appendMessage(team.id, {
+                id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+                content: `❌ Delivery to ${agent.name} failed: ${message}`,
+                type: 'chat', timestamp: new Date().toISOString(),
+              })
+              console.error(`[Ensemble] ✗ Failed to inject prompt into ${sessionName}:`, err)
+            }
+          })
+        )
+
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `🚀 All ${ready.length} agents received their task — collaboration started`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      }
+    }
+  } catch (err: unknown) {
+    // Top-level catch: if something unexpected blows up, mark team as failed
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[Ensemble] spawnTeamAgents failed for ${team.id}:`, message)
+    appendMessage(team.id, {
+      id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+      content: `❌ Team setup failed: ${message}`,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
+    updateTeam(team.id, { status: 'disbanded', completedAt: new Date().toISOString() })
+  }
 }
 
 export function getEnsembleTeam(teamId: string): ServiceResult<{ team: EnsembleTeam; messages: EnsembleMessage[] }> {
@@ -674,26 +878,52 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
       })
   )
 
+  const stripPaths = (s: string) =>
+    s.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
+
   const summaryText = agents.map(agent => {
     const msgs = agentMsgs.filter(m => m.from === agent)
-    const first = msgs[0]?.content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim() || ''
-    const last = msgs[msgs.length - 1]?.content.replace(/\/tmp\/ensemble[-\w]*/g, '').trim() || ''
     const tokens = tokenUsageMap[agent] || 'unknown'
-    return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first.slice(0, 300)}\n  Eind: ${last.slice(0, 500)}`
+    const lastThree = msgs.slice(-3).map((m, i) => {
+      const cleaned = stripPaths(m.content)
+      return `  [${msgs.length - (msgs.slice(-3).length - 1 - i)}/${msgs.length}]: ${cleaned.slice(0, 500)}`
+    })
+    return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n${lastThree.join('\n')}`
   }).join('\n\n')
+
+  // Key findings: messages matching actionable patterns
+  const findingPatterns = /\b(?:finding|issue|recommend|suggest|fix|bug|improvement)\b/i
+  const keyFindings = agentMsgs
+    .filter(m => findingPatterns.test(m.content))
+    .slice(-5)
+    .map(m => {
+      const cleaned = stripPaths(m.content)
+      return `  [${m.from}]: ${cleaned.slice(0, 500)}`
+    })
+  const keyFindingsSection = keyFindings.length > 0
+    ? `\n\nKey findings:\n${keyFindings.join('\n')}`
+    : ''
 
   const summaryFile = collabSummaryFile(teamId)
   fs.mkdirSync(path.dirname(summaryFile), { recursive: true })
   fs.writeFileSync(
     summaryFile,
-    `Task: ${team.description || 'unknown'}\nDuration: ${duration}\nMessages: ${agentMsgs.length}\n\n${summaryText}`,
+    `Task: ${team.description || 'unknown'}\nDuration: ${duration}\nMessages: ${agentMsgs.length}\n\n${summaryText}${keyFindingsSection}`,
   )
   console.log(`[Ensemble] Summary written to ${summaryFile}`)
 }
 
-export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual' | 'error' | 'auto'): Promise<ServiceResult<{ team: EnsembleTeam }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
+
+  // Record disband reason
+  const disbandReason = reason || 'manual'
+  appendMessage(teamId, {
+    id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+    content: `Team disbanded (reason: ${disbandReason})`,
+    type: 'chat', timestamp: new Date().toISOString(),
+  })
 
   // Write summary before killing sessions so the Claude Code session can present it
   await writeDisbandSummary(teamId)
@@ -765,9 +995,14 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
     }
   }
 
+  // Store disband reason in result
+  const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+  const durationMs = Date.now() - new Date(team.createdAt).getTime()
+
   const updated = updateTeam(teamId, {
     status: 'disbanded',
     completedAt: new Date().toISOString(),
+    result: { ...existingResult, duration: durationMs, disbandReason },
   })
 
   // Soft cleanup: remove ephemeral files, keep messages/summary/log, write .finished marker
@@ -797,7 +1032,7 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
         const first = msgs[0]?.content.slice(0, 300) || ''
         const last = msgs[msgs.length - 1]?.content.slice(0, 500) || ''
         const tokens = tokenUsageMap[agent] || 'unknown'
-        return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first}\n  Eind: ${last}`
+        return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first}\n  End: ${last}`
       })
 
       sendTelegramSummary({
@@ -832,4 +1067,85 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   } catch { /* non-fatal */ }
 
   return { data: { team: updated! }, status: 200 }
+}
+
+/**
+ * Permanently delete a team and all its data — registry entry, messages, runtime files.
+ * Only works on disbanded/completed/failed teams. Active teams must be disbanded first.
+ */
+export function deleteTeamPermanently(teamId: string): ServiceResult<{ deleted: boolean }> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  if (team.status === 'active' || team.status === 'forming') {
+    return { error: 'Cannot delete an active team. Disband it first.', status: 400 }
+  }
+
+  // Remove runtime directory (messages.jsonl, summary.txt, prompts, etc.)
+  try {
+    const runtimeDir = collabRuntimeDir(teamId)
+    if (fs.existsSync(runtimeDir)) fs.rmSync(runtimeDir, { recursive: true, force: true })
+  } catch { /* non-fatal */ }
+
+  // Remove from registry (teams.json + feed messages)
+  deleteTeamFromRegistry(teamId)
+
+  return { data: { deleted: true }, status: 200 }
+}
+
+/**
+ * Clone a previous team as a new team — same task + agents, optionally seeded
+ * with message context from the original.
+ */
+export async function cloneTeam(
+  sourceTeamId: string,
+  options: { seedMessages?: boolean; workingDirectory?: string } = {},
+): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  const source = getTeam(sourceTeamId)
+  if (!source) return { error: 'Source team not found', status: 404 }
+
+  // Build the create request from the source team
+  const request: CreateTeamRequest = {
+    name: `${source.name.replace(/-\d+$/, '')}-${Date.now()}`,
+    description: source.description,
+    agents: source.agents.map((a, i) => ({
+      program: a.program,
+      role: a.role || (i === 0 ? 'lead' : 'worker'),
+      hostId: a.hostId || undefined,
+    })),
+    feedMode: source.feedMode || 'live',
+    workingDirectory: options.workingDirectory || undefined,
+  }
+
+  // Create the new team (non-blocking — spawns in background)
+  const result = await createEnsembleTeam(request)
+  if (result.error || !result.data) return result
+
+  const newTeam = result.data.team
+
+  // Optionally seed with context from the source team's messages
+  if (options.seedMessages) {
+    const sourceMessages = getMessages(sourceTeamId)
+    const agentMessages = sourceMessages
+      .filter(m => m.from !== 'ensemble')
+      .slice(-15) // last 15 messages as context
+
+    if (agentMessages.length > 0) {
+      const contextSummary = agentMessages
+        .map(m => `${m.from}: ${m.content.slice(0, 300)}`)
+        .join('\n')
+
+      appendMessage(newTeam.id, {
+        id: uuidv4(),
+        teamId: newTeam.id,
+        from: 'ensemble',
+        to: 'team',
+        content: `Continuing from previous session (${source.name}):\n\n${contextSummary}`,
+        type: 'chat',
+        timestamp: new Date().toISOString(),
+      })
+    }
+  }
+
+  return result
 }

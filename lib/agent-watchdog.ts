@@ -5,8 +5,8 @@ import type { AgentRuntime } from './agent-runtime'
 import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
-const DEFAULT_NUDGE_MS = 90_000
-const DEFAULT_STALL_MS = 180_000
+const DEFAULT_NUDGE_MS = 180_000
+const DEFAULT_STALL_MS = 300_000
 const WATCHDOG_NUDGE_TEXT = 'Are you still working? Share your progress with team-say.'
 
 interface AgentWatchdogState {

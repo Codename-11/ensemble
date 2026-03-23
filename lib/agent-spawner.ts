@@ -5,9 +5,13 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
+import os from 'os'
+import fs from 'fs'
+import path from 'path'
 import { getRuntime } from './agent-runtime'
 import { getSelfHostId } from './hosts-config'
-import { buildAgentCommand } from './agent-config'
+import { buildAgentCommand, resolveAgentProgram } from './agent-config'
+import { collabRuntimeDir, ensureCollabDirs } from './collab-paths'
 
 export interface SpawnedAgent {
   id: string
@@ -23,6 +27,8 @@ interface SpawnAgentOptions {
   program: string
   workingDirectory: string
   hostId?: string
+  teamId?: string
+  apiUrl?: string
 }
 
 /** Compute tmux session name from agent name */
@@ -35,6 +41,45 @@ function resolveStartCommand(program: string): string {
   return buildAgentCommand(program)
 }
 
+/** Absolute path to the MCP server script bundled with ensemble */
+function getMcpServerPath(): string {
+  const __dirname = path.dirname(new URL(import.meta.url).pathname)
+  // On Windows, strip leading slash from /C:/... paths
+  const dir = os.platform() === 'win32' ? __dirname.replace(/^\//, '') : __dirname
+  return path.join(dir, '..', 'mcp', 'ensemble-mcp-server.mjs')
+}
+
+/**
+ * Write an MCP config JSON file for an agent and return the file path.
+ * The config registers the ensemble MCP server with the agent's team/name/API context.
+ */
+function writeMcpConfig(options: {
+  teamId: string
+  agentName: string
+  apiUrl: string
+  teamDir: string
+}): string {
+  const mcpConfig = {
+    mcpServers: {
+      ensemble: {
+        command: 'node',
+        args: [getMcpServerPath()],
+        env: {
+          ENSEMBLE_TEAM_ID: options.teamId,
+          ENSEMBLE_AGENT_NAME: options.agentName,
+          ENSEMBLE_API_URL: options.apiUrl,
+        },
+      },
+    },
+  }
+
+  const configPath = path.join(options.teamDir, `${options.agentName}-mcp.json`)
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(configPath, JSON.stringify(mcpConfig, null, 2))
+  console.log(`[Spawner] MCP config written to ${configPath}`)
+  return configPath
+}
+
 /**
  * Spawn a local agent: create tmux session + start the AI program
  */
@@ -45,17 +90,57 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   const cwd = options.workingDirectory || process.cwd()
   const hostId = options.hostId || getSelfHostId()
 
-  // Create tmux session
+  // Create session (tmux on Unix, node-pty on Windows)
   await runtime.createSession(sessionName, cwd)
 
   // Small delay for session init
   await new Promise(r => setTimeout(r, 300))
 
-  // Start the AI program
-  const startCommand = resolveStartCommand(options.program)
-  await runtime.sendKeys(sessionName, `unset CLAUDECODE; ${startCommand}`, { literal: true, enter: true })
+  // Set MCP environment variables if team context is available
+  if (options.teamId) {
+    const apiUrl = options.apiUrl || 'http://localhost:23000'
+    await runtime.setEnvironment(sessionName, 'ENSEMBLE_TEAM_ID', options.teamId)
+    await runtime.setEnvironment(sessionName, 'ENSEMBLE_AGENT_NAME', options.name)
+    await runtime.setEnvironment(sessionName, 'ENSEMBLE_API_URL', apiUrl)
+  }
 
-  console.log(`[Spawner] Agent ${options.name} started in tmux session ${sessionName}`)
+  // Build the start command, optionally with MCP config
+  const startCommand = resolveStartCommand(options.program)
+  let mcpFlag = ''
+
+  // Check communication mode: "mcp" (default) or "shell" (legacy)
+  const commMode = process.env.ENSEMBLE_COMM_MODE || 'mcp'
+
+  if (options.teamId && commMode === 'mcp') {
+    const agentConfig = resolveAgentProgram(options.program)
+    const mcpMode = agentConfig.mcpMode
+
+    if (mcpMode) {
+      const apiUrl = options.apiUrl || 'http://localhost:23000'
+      ensureCollabDirs(options.teamId)
+      const teamDir = collabRuntimeDir(options.teamId)
+
+      const shortName = options.name.includes('-')
+        ? options.name.substring(options.name.indexOf('-') + 1)
+        : options.name
+
+      // Both Claude and Codex use --mcp-config with a JSON file
+      const mcpConfigPath = writeMcpConfig({
+        teamId: options.teamId,
+        agentName: shortName,
+        apiUrl,
+        teamDir,
+      })
+      mcpFlag = ` ${agentConfig.mcpConfigFlag || '--mcp-config'} ${mcpConfigPath}`
+    }
+  }
+
+  const launchCmd = os.platform() === 'win32'
+    ? `set CLAUDECODE= & ${startCommand}${mcpFlag}`
+    : `unset CLAUDECODE; ${startCommand}${mcpFlag}`
+  await runtime.sendKeys(sessionName, launchCmd, { literal: true, enter: true })
+
+  console.log(`[Spawner] Agent ${options.name} started in session ${sessionName}`)
 
   return {
     id: agentId,
@@ -188,8 +273,15 @@ export async function postRemoteSessionCommand(
   }
 }
 
+/** Strip ANSI escape codes from terminal output */
+function stripAnsi(str: string): string {
+  // Matches: CSI sequences, OSC sequences, and other escape sequences
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[^[\]()][^\x1b]*/g, '')
+}
+
 /**
- * Scrape token usage from an agent's tmux pane output.
+ * Scrape token usage from an agent's pane output.
  * Best-effort: returns 'unknown' if parsing fails.
  *
  * Claude Code patterns: "NNk tokens", "NN,NNN tokens", "NNN tokens"
@@ -198,7 +290,9 @@ export async function postRemoteSessionCommand(
 export async function getAgentTokenUsage(sessionName: string): Promise<string> {
   try {
     const runtime = getRuntime()
-    const output = await runtime.capturePane(sessionName, 100)
+    const raw = await runtime.capturePane(sessionName, 100)
+    // Strip ANSI escape codes so regexes match on Windows PTY output
+    const output = stripAnsi(raw)
 
     // Claude Code: "123k tokens" or "12,345 tokens" or "1.2k tokens"
     const claudeKMatch = output.match(/(\d+(?:\.\d+)?k)\s*tokens/i)

@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  ensemble:
+    build: .
+    ports:
+      - "23000:23000"
+      - "5173:5173"
+    volumes:
+      - ensemble-data:/app/.ensemble
+      - /tmp/ensemble:/tmp/ensemble
+    environment:
+      - ENSEMBLE_PORT=23000
+      - ENSEMBLE_HOST=0.0.0.0
+    restart: unless-stopped
+
+volumes:
+  ensemble-data:

@@ -12,6 +12,8 @@
 
 import http from 'http'
 import fs from 'fs'
+import os from 'os'
+import readline from 'readline'
 import { execFileSync, spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
@@ -151,6 +153,7 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     process.stderr.write(`  ${c.dim}Starting server...${c.r}\n`)
     serverProc = spawn('tsx', ['server.ts'], {
       cwd: repoDir, stdio: 'ignore', detached: true,
+      shell: os.platform() === 'win32',
     })
     serverProc.unref()
     for (let i = 0; i < 10; i++) {
@@ -184,7 +187,8 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
   }) as { team: { id: string } }
 
   const teamId = result.team.id
-  const messagesFile = `/tmp/ensemble/${teamId}/messages.jsonl`
+  const runtimeRoot = process.env.ENSEMBLE_RUNTIME_DIR || path.join(os.tmpdir(), 'ensemble')
+  const messagesFile = path.join(runtimeRoot, teamId, 'messages.jsonl')
 
   console.log(`\n  ${c.bold}${c.bWhite}◈ ensemble run${c.r}`)
   console.log(`  ${c.dim}${task.slice(0, 100)}${c.r}`)
@@ -236,6 +240,131 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
   process.exit(124)
 }
 
+// ─── Interactive helpers ───
+
+/** Prompt user for a line of text via readline. Returns trimmed input. */
+function promptLine(prompt: string, defaultValue?: string): Promise<string> {
+  return new Promise(resolve => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    const suffix = defaultValue ? ` ${c.dim}[${defaultValue}]${c.r}: ` : ': '
+    rl.question(`  ${prompt}${suffix}`, answer => {
+      rl.close()
+      const val = answer.trim()
+      resolve(val || defaultValue || '')
+    })
+  })
+}
+
+/** Read a single key from stdin (raw mode). Returns the character pressed. */
+function readKey(): Promise<string> {
+  return new Promise(resolve => {
+    const wasRaw = process.stdin.isRaw
+    if (process.stdin.isTTY) process.stdin.setRawMode(true)
+    process.stdin.resume()
+    process.stdin.once('data', (data: Buffer) => {
+      if (process.stdin.isTTY) process.stdin.setRawMode(wasRaw ?? false)
+      process.stdin.pause()
+      resolve(data.toString())
+    })
+  })
+}
+
+/** Interactive run flow — prompts for task, agents, timeout then delegates to cmdRun. */
+async function interactiveRun() {
+  console.log()
+  console.log(`  ${c.bold}${c.bWhite}◈ ensemble${c.r} ${c.dim}— new collaboration${c.r}`)
+  console.log()
+
+  const task = await promptLine(`${c.bold}Task${c.r}`)
+  if (!task) {
+    console.log(`\n  ${c.red}Task is required.${c.r}\n`)
+    process.exit(1)
+  }
+
+  const agentsInput = await promptLine(`${c.bold}Agents${c.r}`, 'codex,claude code')
+  const timeoutInput = await promptLine(`${c.bold}Timeout${c.r}`, '600')
+  const timeout = parseInt(timeoutInput, 10) || 600
+  const agentList = agentsInput && agentsInput !== 'codex,claude code' ? agentsInput : undefined
+
+  console.log()
+  await cmdRun(task, agentList, timeout)
+}
+
+/** Interactive main menu — single-key selection dispatching to commands. */
+async function interactiveMenu() {
+  console.log()
+  console.log(`  ${c.bold}${c.bWhite}◈ ensemble${c.r}`)
+  console.log()
+  console.log(`  ${c.bWhite}[r]${c.r} Run new collaboration`)
+  console.log(`  ${c.bWhite}[m]${c.r} Monitor latest team`)
+  console.log(`  ${c.bWhite}[t]${c.r} List teams`)
+  console.log(`  ${c.bWhite}[s]${c.r} Server status`)
+  console.log(`  ${c.bWhite}[h]${c.r} Help`)
+  console.log()
+  process.stdout.write(`  Select: `)
+
+  const key = await readKey()
+  const ch = key.toLowerCase()
+  // Clear the line after key press
+  process.stdout.write(`${ch}\n`)
+
+  switch (ch) {
+    case 'r':
+      await interactiveRun()
+      break
+    case 'm': {
+      const __filename = fileURLToPath(import.meta.url)
+      const monitorPath = path.join(path.dirname(__filename), 'monitor.ts')
+      try {
+        execFileSync('tsx', [monitorPath, '--latest'], { stdio: 'inherit', shell: os.platform() === 'win32' })
+      } catch { /* exit handled by monitor */ }
+      break
+    }
+    case 't':
+      await cmdTeams()
+      break
+    case 's':
+      await cmdStatus()
+      break
+    case 'h':
+      showHelp()
+      break
+    case '\x03': // Ctrl+C
+    case 'q':
+      break
+    default:
+      console.log(`\n  ${c.dim}Unknown option. Press h for help.${c.r}\n`)
+      break
+  }
+}
+
+function showHelp() {
+  console.log(`
+  ${c.bold}${c.bWhite}◈ ensemble${c.r} — multi-agent collaboration engine
+
+  ${c.bold}Commands:${c.r}
+    ${c.bWhite}run${c.r} "task" [--agents ..]   Run headless (no Claude Code needed)
+    ${c.bWhite}monitor${c.r} [--latest | id]   Watch team collaboration live
+    ${c.bWhite}teams${c.r}                      List all teams
+    ${c.bWhite}steer${c.r} <id> <message>       Send steering message to team
+    ${c.bWhite}status${c.r}                     Server health & overview
+
+  ${c.bold}Monitor keybindings:${c.r}
+    ${c.bWhite}s${c.r}       Steer entire team
+    ${c.bWhite}1-4${c.r}     Steer specific agent
+    ${c.bWhite}j/k${c.r}     Scroll up/down
+    ${c.bWhite}d${c.r}       Disband team
+    ${c.bWhite}q${c.r}       Quit
+
+  ${c.bold}Examples:${c.r}
+    ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
+    ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
+    ${c.dim}ensemble monitor --latest${c.r}
+    ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
+    ${c.dim}ensemble teams${c.r}
+`)
+}
+
 // ─── Main ───
 
 const [cmd, ...args] = process.argv.slice(2)
@@ -248,7 +377,7 @@ switch (cmd) {
     const monitorPath = path.join(path.dirname(__filename), 'monitor.ts')
     const monitorArgs = args.length ? args : ['--latest']
     try {
-      execFileSync('tsx', [monitorPath, ...monitorArgs], { stdio: 'inherit' })
+      execFileSync('tsx', [monitorPath, ...monitorArgs], { stdio: 'inherit', shell: os.platform() === 'win32' })
     } catch { /* exit handled by monitor */ }
     break
   }
@@ -274,8 +403,8 @@ switch (cmd) {
     }
     const taskDesc = runArgs.join(' ')
     if (!taskDesc) {
-      console.log(`Usage: ensemble run "task description" [--agents codex,claude] [--timeout 600]`)
-      process.exit(1)
+      await interactiveRun()
+      break
     }
     await cmdRun(taskDesc, agentList, timeout)
     break
@@ -291,31 +420,10 @@ switch (cmd) {
   case 'help':
   case '--help':
   case '-h':
+    showHelp()
+    break
   case undefined:
-    console.log(`
-  ${c.bold}${c.bWhite}◈ ensemble${c.r} — multi-agent collaboration engine
-
-  ${c.bold}Commands:${c.r}
-    ${c.bWhite}run${c.r} "task" [--agents ..]   Run headless (no Claude Code needed)
-    ${c.bWhite}monitor${c.r} [--latest | id]   Watch team collaboration live
-    ${c.bWhite}teams${c.r}                      List all teams
-    ${c.bWhite}steer${c.r} <id> <message>       Send steering message to team
-    ${c.bWhite}status${c.r}                     Server health & overview
-
-  ${c.bold}Monitor keybindings:${c.r}
-    ${c.bWhite}s${c.r}       Steer entire team
-    ${c.bWhite}1-4${c.r}     Steer specific agent
-    ${c.bWhite}j/k${c.r}     Scroll up/down
-    ${c.bWhite}d${c.r}       Disband team
-    ${c.bWhite}q${c.r}       Quit
-
-  ${c.bold}Examples:${c.r}
-    ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
-    ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
-    ${c.dim}ensemble monitor --latest${c.r}
-    ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
-    ${c.dim}ensemble teams${c.r}
-`)
+    await interactiveMenu()
     break
   default:
     console.log(`Unknown command: ${cmd}. Try: ensemble help`)

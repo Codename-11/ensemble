@@ -5,8 +5,19 @@ import { execFileSync } from 'child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EnsembleMessage, EnsembleTeam, StagedWorkflowConfig } from '../types/ensemble'
 
-const TEAM_SAY_BIN = path.resolve(process.cwd(), 'scripts/team-say.sh')
-const TMP_ENSEMBLE_DIR = '/tmp/ensemble'
+const isWindows = os.platform() === 'win32'
+const TEAM_SAY_SCRIPT = isWindows
+  ? path.resolve(process.cwd(), 'scripts/team-say.mjs')
+  : path.resolve(process.cwd(), 'scripts/team-say.sh')
+const TMP_ENSEMBLE_DIR = path.join(os.tmpdir(), 'ensemble')
+
+/** Run team-say cross-platform — on Windows, invoke via node */
+function runTeamSay(args: string[], opts?: { encoding: 'utf-8' }): string {
+  if (isWindows) {
+    return execFileSync('node', [TEAM_SAY_SCRIPT, ...args], opts ?? { encoding: 'utf-8' })
+  }
+  return execFileSync(TEAM_SAY_SCRIPT, args, opts ?? { encoding: 'utf-8' })
+}
 
 function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
   return {
@@ -435,16 +446,14 @@ describe('team-say — output format', () => {
   })
 
   it('prints "Sent to <recipient>" on stdout', () => {
-    const stdout = execFileSync(
-      TEAM_SAY_BIN,
+    const stdout = runTeamSay(
       [testTeamId, 'codex-1', 'claude-2', 'test message'],
-      { encoding: 'utf-8' },
     ).trim()
     expect(stdout).toBe('Sent to claude-2')
   })
 
-  it('writes valid JSONL to /tmp/ensemble/<teamId>/messages.jsonl', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'hello'])
+  it('writes valid JSONL to messages.jsonl', () => {
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'hello'])
     expect(fs.existsSync(outputFile)).toBe(true)
 
     const line = fs.readFileSync(outputFile, 'utf-8').trim()
@@ -452,7 +461,7 @@ describe('team-say — output format', () => {
   })
 
   it('message contains all required EnsembleMessage fields', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'field check'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'field check'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
 
     expect(msg).toMatchObject({
@@ -467,14 +476,14 @@ describe('team-say — output format', () => {
   })
 
   it('id is a valid UUID v4', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'uuid test'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'uuid test'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
     const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
     expect(msg.id).toMatch(uuidV4Regex)
   })
 
   it('timestamp is a valid, recent ISO 8601 string', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'ts test'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'ts test'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
     const parsed = new Date(msg.timestamp)
     expect(Number.isNaN(parsed.getTime())).toBe(false)
@@ -482,13 +491,13 @@ describe('team-say — output format', () => {
   })
 
   it('preserves multi-word content', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'bericht met spaties'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'bericht met spaties'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
     expect(msg.content).toBe('bericht met spaties')
   })
 
   it('handles special characters in message', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'Hello "world" & <test>'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'Hello "world" & <test>'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
     expect(msg.content).toContain('"world"')
     expect(msg.content).toContain('&')
@@ -496,8 +505,8 @@ describe('team-say — output format', () => {
   })
 
   it('appends multiple messages with unique ids', () => {
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'First'])
-    execFileSync(TEAM_SAY_BIN, [testTeamId, 'codex-1', 'claude-2', 'Second'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'First'])
+    runTeamSay([testTeamId, 'codex-1', 'claude-2', 'Second'])
 
     const lines = fs.readFileSync(outputFile, 'utf-8').trim().split('\n')
     expect(lines).toHaveLength(2)
@@ -695,10 +704,12 @@ describe('worktree isolation lifecycle', () => {
       workingDirectory: '/repo',
       useWorktrees: true,
     })
+    // Background spawn needs a tick to run (createEnsembleTeam returns immediately now)
+    await new Promise(r => setTimeout(r, 100))
 
     expect(mocks.createWorktree).toHaveBeenCalledWith(team.id, 'codex-1', '/repo')
     expect(mocks.spawnLocalAgent).toHaveBeenCalledWith(expect.objectContaining({
-      workingDirectory: '/repo/.worktrees/team-worktree-create-codex-1',
+      workingDirectory: path.join('/repo', '.worktrees', 'team-worktree-create-codex-1'),
     }))
   })
 
@@ -876,7 +887,7 @@ describe('staged workflow integration', () => {
     return { mod, runtime, runStagedWorkflow }
   }
 
-  it('uses staged workflow instead of normal prompt injection when staged=true', async () => {
+  it('uses staged workflow instead of normal prompt injection when staged=true', { timeout: 15000 }, async () => {
     const team = makeTeam({
       id: 'team-staged',
       name: 'team-staged',
@@ -897,6 +908,8 @@ describe('staged workflow integration', () => {
       staged: true,
       stagedConfig,
     })
+    // Background spawn: waitForReady (1s poll) + 2s delay + prompt injection
+    await new Promise(r => setTimeout(r, 5000))
 
     expect(runStagedWorkflow).toHaveBeenCalledTimes(1)
     expect(runStagedWorkflow).toHaveBeenCalledWith(
@@ -911,7 +924,7 @@ describe('staged workflow integration', () => {
     expect(runtime.sendKeys).not.toHaveBeenCalled()
   })
 
-  it('keeps normal prompt injection when staged=false', async () => {
+  it('keeps normal prompt injection when staged=false', { timeout: 15000 }, async () => {
     const team = makeTeam({
       id: 'team-non-staged',
       name: 'team-non-staged',
@@ -930,6 +943,8 @@ describe('staged workflow integration', () => {
       workingDirectory: '/repo',
       staged: false,
     })
+    // Background spawn: waitForReady (1s poll) + 2s delay + prompt injection
+    await new Promise(r => setTimeout(r, 5000))
 
     expect(runStagedWorkflow).not.toHaveBeenCalled()
     expect(runtime.sendKeys).toHaveBeenCalledTimes(2)

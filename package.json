@@ -7,17 +7,28 @@
     "ensemble": "./cli/ensemble.ts"
   },
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "NODE_ENV=production tsx server.ts",
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "tsx server.ts",
+    "dev:web": "cd web && npm run dev",
+    "start": "tsx server.ts",
     "build": "tsc --noEmit",
+    "build:web": "cd web && npm run build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "monitor": "tsx cli/monitor.ts --latest",
-    "cli": "tsx cli/ensemble.ts"
+    "cli": "tsx cli/ensemble.ts",
+    "launch": "node scripts/collab-launch.mjs",
+    "bridge": "node scripts/ensemble-bridge.mjs",
+    "setup": "node scripts/setup-claude-code.mjs",
+    "test": "vitest run",
+    "postinstall": "cd web && npm install --ignore-scripts 2>/dev/null || true"
   },
   "dependencies": {
     "tsx": "^4.0.0",
     "uuid": "^9.0.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

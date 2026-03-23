@@ -9,7 +9,13 @@
  */
 
 import { exec, execFileSync as nodeExecFileSync } from 'child_process'
+import { createRequire } from 'module'
 import { promisify } from 'util'
+import os from 'os'
+
+// createRequire gives us a CJS-compatible require() in ESM context,
+// needed for conditional loading of node-pty on Windows.
+const esmRequire = createRequire(import.meta.url)
 
 const execAsync = promisify(exec)
 
@@ -25,7 +31,7 @@ export interface DiscoveredSession {
 }
 
 export interface AgentRuntime {
-  readonly type: 'tmux' | 'happy' | 'docker' | 'api' | 'direct'
+  readonly type: 'tmux' | 'happy' | 'docker' | 'api' | 'direct' | 'pty'
 
   // Discovery
   listSessions(): Promise<DiscoveredSession[]>
@@ -247,7 +253,7 @@ export class TmuxRuntime implements AgentRuntime {
       const sLines = Math.max(1, Math.min(10000, Math.floor(lines)))
       const { stdout } = await execAsync(
         `tmux capture-pane -t "${sName}" -p -S -${sLines} 2>/dev/null || tmux capture-pane -t "${sName}" -p`,
-        { encoding: 'utf8', timeout: 3000, shell: '/bin/bash' }
+        { encoding: 'utf8', timeout: 3000, shell: process.env.SHELL || '/bin/bash' }
       )
       return stdout
     } catch {
@@ -284,9 +290,22 @@ export class TmuxRuntime implements AgentRuntime {
 // Singleton + factory
 // ---------------------------------------------------------------------------
 
-let defaultRuntime: AgentRuntime = new TmuxRuntime()
+let defaultRuntime: AgentRuntime | null = null
+
+/** Create the platform-appropriate runtime */
+function createDefaultRuntime(): AgentRuntime {
+  if (os.platform() === 'win32') {
+    // Use createRequire for conditional loading — avoids node-pty dep on Unix
+    const { PtySessionManager } = esmRequire('./pty-session-manager')
+    return new PtySessionManager()
+  }
+  return new TmuxRuntime()
+}
 
 export function getRuntime(): AgentRuntime {
+  if (!defaultRuntime) {
+    defaultRuntime = createDefaultRuntime()
+  }
   return defaultRuntime
 }
 
@@ -296,15 +315,26 @@ export function setRuntime(r: AgentRuntime): void {
 
 // ---------------------------------------------------------------------------
 // Sync helpers for lib/agent-registry.ts (uses execSync, can't be async)
+// On Windows these delegate to the PtySessionManager via the default runtime.
 // ---------------------------------------------------------------------------
 
 function sanitizeNameSync(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9\-_.]/g, '')
-  if (!sanitized) throw new Error(`Invalid tmux name after sanitization: "${name}"`)
+  if (!sanitized) throw new Error(`Invalid session name after sanitization: "${name}"`)
   return sanitized
 }
 
+const isWindows = os.platform() === 'win32'
+
 export function sessionExistsSync(name: string, socketPath?: string): boolean {
+  if (isWindows) {
+    // On Windows, check the PtySessionManager's in-memory session map
+    const runtime = getRuntime()
+    if ('getSession' in runtime) {
+      return !!(runtime as { getSession(n: string): unknown }).getSession(name)
+    }
+    return false
+  }
   try {
     const sName = sanitizeNameSync(name)
     const args = socketPath
@@ -318,6 +348,11 @@ export function sessionExistsSync(name: string, socketPath?: string): boolean {
 }
 
 export function killSessionSync(name: string): void {
+  if (isWindows) {
+    const runtime = getRuntime()
+    void runtime.killSession(name)
+    return
+  }
   try {
     const sName = sanitizeNameSync(name)
     nodeExecFileSync('tmux', ['kill-session', '-t', sName], { encoding: 'utf-8', stdio: 'ignore' })
@@ -327,6 +362,11 @@ export function killSessionSync(name: string): void {
 }
 
 export function renameSessionSync(oldName: string, newName: string): void {
+  if (isWindows) {
+    const runtime = getRuntime()
+    void runtime.renameSession(oldName, newName)
+    return
+  }
   const sOld = sanitizeNameSync(oldName)
   const sNew = sanitizeNameSync(newName)
   nodeExecFileSync('tmux', ['rename-session', '-t', sOld, sNew], { encoding: 'utf-8' })

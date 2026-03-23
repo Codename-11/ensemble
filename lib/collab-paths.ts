@@ -1,13 +1,20 @@
 /**
  * Collab Path Resolver — Shared path contract for multi-collab isolation.
- * All runtime files live under /tmp/ensemble/<teamId>/.
+ * All runtime files live under <os.tmpdir()>/ensemble/<teamId>/.
  * Shell equivalent: scripts/collab-paths.sh (must stay in sync).
  */
 
 import path from 'path'
 import fs from 'fs'
+import os from 'os'
 
-const RUNTIME_ROOT = '/tmp/ensemble'
+const RUNTIME_ROOT = process.env.ENSEMBLE_RUNTIME_DIR
+  || path.join(os.tmpdir(), 'ensemble')
+
+/** Get the runtime root (for display/scripts) */
+export function getCollabRuntimeRoot(): string {
+  return RUNTIME_ROOT
+}
 
 /** Base runtime directory for a team */
 export function collabRuntimeDir(teamId: string): string {

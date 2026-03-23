@@ -132,6 +132,23 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
   })
 }
 
+/** Remove a team and all its messages from the registry */
+export function deleteTeam(id: string): boolean {
+  return withTeamsLock(() => {
+    const teams = readTeamsFile()
+    const idx = teams.findIndex(t => t.id === id)
+    if (idx === -1) return false
+    teams.splice(idx, 1)
+    writeTeamsFile(teams)
+
+    // Remove message files
+    const msgDir = path.join(MESSAGES_DIR, id)
+    if (fs.existsSync(msgDir)) fs.rmSync(msgDir, { recursive: true, force: true })
+
+    return true
+  })
+}
+
 export function appendMessage(teamId: string, message: EnsembleMessage): void {
   const dir = path.join(MESSAGES_DIR, teamId)
   ensureDir(dir)

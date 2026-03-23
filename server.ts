@@ -3,16 +3,26 @@
  * Lightweight replacement for Next.js API routes.
  */
 
+import fs from 'fs'
+import nodePath from 'path'
+import { fileURLToPath } from 'url'
 import http from 'http'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
-  getTeamFeed, sendTeamMessage, disbandTeam,
+  getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently,
+  addAgentToTeam, cloneTeam, listCollabTemplates,
 } from './services/ensemble-service'
+import { updateTeam } from './lib/ensemble-registry'
+import { getRuntime } from './lib/agent-runtime'
+import { color, styledHeader, styledLog, styledStatus } from './lib/cli-style'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = nodePath.dirname(__filename)
 
 const PORT = parseInt(process.env.ENSEMBLE_PORT || process.env.ORCHESTRA_PORT || '23000', 10)
 const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
 const RATE_LIMIT_WINDOW_MS = 60_000
-const RATE_LIMIT_MAX_REQUESTS = 100
+const RATE_LIMIT_MAX_REQUESTS = 600
 const DEFAULT_CORS_ORIGIN_PATTERNS = [
   /^http:\/\/localhost(?::\d+)?$/i,
   /^http:\/\/127\.0\.0\.1(?::\d+)?$/i,
@@ -25,6 +35,27 @@ type RateLimitEntry = {
 }
 
 const rateLimitByIp = new Map<string, RateLimitEntry>()
+
+// Track active SSE connections for cleanup
+type SseConnection = {
+  res: http.ServerResponse
+  interval: ReturnType<typeof setInterval>
+  teamId: string
+}
+const activeSseConnections = new Set<SseConnection>()
+
+// Track active session SSE connections for cleanup
+type SessionSseConnection = {
+  res: http.ServerResponse
+  interval: ReturnType<typeof setInterval>
+  sessionName: string
+}
+const activeSessionSseConnections = new Set<SessionSseConnection>()
+
+/** Validate session name: alphanumeric, hyphens, underscores, dots only */
+function isValidSessionName(name: string): boolean {
+  return /^[a-zA-Z0-9\-_.]+$/.test(name)
+}
 
 // Periodic cleanup of stale rate limit entries to prevent unbounded Map growth
 setInterval(() => {
@@ -131,6 +162,35 @@ const server = http.createServer(async (req, res) => {
       return json(res, { status: 'healthy', version: '1.0.0' }, 200, origin)
     }
 
+    // Server info — cwd, available agents, recent project dirs
+    if (path === '/api/ensemble/info' && method === 'GET') {
+      const { loadAgentsConfig } = await import('./lib/agent-config')
+      const agentsConfig = loadAgentsConfig()
+      const agents = Object.entries(agentsConfig).map(([key, agent]) => ({
+        id: key,
+        name: (agent as { name: string }).name,
+        color: (agent as { color: string }).color,
+        icon: (agent as { icon: string }).icon,
+      }))
+      const templates = listCollabTemplates()
+
+      // Collect unique working directories from recent team descriptions
+      // (workingDirectory isn't stored on the team object, but descriptions often reference paths)
+      const recentDirs: string[] = []
+
+      return json(res, {
+        cwd: process.cwd(),
+        agents,
+        templates,
+        launchDefaults: {
+          minAgents: 2,
+          maxAgents: 4,
+          feedMode: 'live',
+        },
+        recentDirectories: recentDirs,
+      }, 200, origin)
+    }
+
     // List teams / Create team
     if (path === '/api/ensemble/teams') {
       if (method === 'GET') {
@@ -171,16 +231,190 @@ const server = http.createServer(async (req, res) => {
         return json(res, result.data, result.status, origin)
       }
       if (method === 'DELETE') {
-        const result = await disbandTeam(teamId)
+        const result = await disbandTeam(teamId, 'manual')
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
       }
     }
 
+    // Add agent to team: POST /api/ensemble/teams/:id/agents
+    const addAgentMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/agents$/)
+    if (addAgentMatch && method === 'POST') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+      const program = body.program
+      if (typeof program !== 'string' || !program.trim()) {
+        return json(res, { error: 'Bad Request: "program" must be a non-empty string' }, 400, origin)
+      }
+      const role = typeof body.role === 'string' ? body.role : undefined
+      const result = await addAgentToTeam(addAgentMatch[1], program.trim(), role)
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
+    // Clone/restart team: POST /api/ensemble/teams/:id/clone
+    const cloneMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/clone$/)
+    if (cloneMatch && method === 'POST') {
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
+      const result = await cloneTeam(cloneMatch[1], {
+        seedMessages: body.seedMessages === true,
+        workingDirectory: typeof body.workingDirectory === 'string' ? body.workingDirectory : undefined,
+      })
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
     // Disband: /api/ensemble/teams/:id/disband
     const disbandMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
     if (disbandMatch && method === 'POST') {
-      const result = await disbandTeam(disbandMatch[1])
+      const result = await disbandTeam(disbandMatch[1], 'manual')
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
+    // Summarize team with AI agent: POST /api/ensemble/teams/:id/summarize
+    // Spawns a temporary agent session, sends the summarize prompt, captures output.
+    // Works with any backend agent (claude, codex, gemini, etc.) — no API key needed.
+    const summarizeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/summarize$/)
+    if (summarizeMatch && method === 'POST') {
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
+
+      const agentProgram = (typeof body.agent === 'string' && body.agent) || 'claude'
+
+      const teamResult = getEnsembleTeam(summarizeMatch[1])
+      if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
+
+      const team = teamResult.data!.team
+      const allMessages = teamResult.data!.messages
+
+      // Build summary prompt
+      const agentMessages = allMessages.filter(m => m.from !== 'ensemble')
+      const createdAt = new Date(team.createdAt).getTime()
+      const endTime = team.completedAt ? new Date(team.completedAt).getTime() : Date.now()
+      const durationMs = endTime - createdAt
+      const durationMin = Math.max(0, Math.round(durationMs / 60000))
+      const duration = durationMin >= 60
+        ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
+        : `${durationMin}m`
+
+      const agentNames = team.agents.map(a => a.name).join(', ')
+      const formattedMessages = agentMessages
+        .slice(-50) // last 50 messages to stay within context
+        .map(m => `${m.from}: ${m.content.slice(0, 500)}`)
+        .join('\n')
+
+      const summaryPrompt = `Summarize this AI agent collaboration in JSON format. Return ONLY valid JSON, no markdown fences.
+
+{"task":"what the task was","decisions":["key decision 1","key decision 2"],"accomplished":["what was done 1","what was done 2"],"issues":["issue 1"],"filesChanged":["file1.ts","file2.ts"],"summary":"2-3 sentence overall summary"}
+
+Team: ${team.name}
+Task: ${team.description}
+Duration: ${duration}
+Agents: ${agentNames}
+Messages:
+${formattedMessages}`
+
+      try {
+        const runtime = getRuntime()
+        const sessionName = `summarize-${team.id.slice(0, 8)}`
+
+        // Spawn a temporary agent session
+        const { buildAgentCommand, resolveAgentProgram } = await import('./lib/agent-config')
+        const agentConfig = resolveAgentProgram(agentProgram)
+        const startCmd = buildAgentCommand(agentProgram)
+
+        await runtime.createSession(sessionName, process.cwd())
+        await new Promise(r => setTimeout(r, 500))
+
+        // Start the agent with --print flag for non-interactive output (claude-specific)
+        const isClaudeProgram = agentProgram.toLowerCase().includes('claude')
+        const printCmd = isClaudeProgram
+          ? `claude --print --output-format text "${summaryPrompt.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`
+          : `${startCmd}`
+
+        await runtime.sendKeys(sessionName, printCmd, { literal: true, enter: true })
+
+        // Wait for output (poll capturePane until we see JSON or timeout)
+        let aiSummary = ''
+        const startTime = Date.now()
+        const maxWait = 60000 // 60s timeout
+
+        while (Date.now() - startTime < maxWait) {
+          await new Promise(r => setTimeout(r, 2000))
+          const output = await runtime.capturePane(sessionName, 200)
+
+          // Look for JSON in the output
+          const jsonMatch = output.match(/\{[\s\S]*"summary"[\s\S]*\}/)
+          if (jsonMatch) {
+            try {
+              const parsed = JSON.parse(jsonMatch[0])
+              aiSummary = JSON.stringify(parsed)
+              break
+            } catch { /* not valid JSON yet, keep waiting */ }
+          }
+
+          // Also check for plain text summary (non-JSON output)
+          if (output.length > 200 && !output.includes(agentConfig.readyMarker)) {
+            // Agent produced output but no JSON — use raw text
+            const lines = output.split('\n')
+            const contentLines = lines.filter(l =>
+              l.trim() && !l.includes(printCmd.slice(0, 30)) && !l.includes('$')
+            )
+            if (contentLines.length > 3) {
+              aiSummary = contentLines.join('\n').trim()
+              break
+            }
+          }
+        }
+
+        // Kill the temporary session
+        try { await runtime.killSession(sessionName) } catch { /* ok */ }
+
+        if (!aiSummary) {
+          return json(res, { error: `Agent did not produce a summary within ${maxWait / 1000}s` }, 504, origin)
+        }
+
+        // Try to parse as JSON, fall back to raw text
+        let parsedSummary: string
+        try {
+          const obj = JSON.parse(aiSummary)
+          parsedSummary = obj.summary || aiSummary
+          // Store structured data if available
+          const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+          updateTeam(team.id, {
+            result: {
+              ...existingResult,
+              aiSummary: obj.summary || aiSummary,
+              decisions: obj.decisions || existingResult.decisions,
+              discoveries: obj.accomplished || existingResult.discoveries,
+              filesChanged: obj.filesChanged || existingResult.filesChanged,
+            },
+          })
+        } catch {
+          parsedSummary = aiSummary
+          const existingResult = team.result || { summary: '', decisions: [], discoveries: [], filesChanged: [], duration: 0 }
+          updateTeam(team.id, {
+            result: { ...existingResult, aiSummary: parsedSummary },
+          })
+        }
+
+        return json(res, { aiSummary: parsedSummary, agent: agentProgram }, 200, origin)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        return json(res, { error: `Failed to generate summary: ${message}` }, 500, origin)
+      }
+    }
+
+    // Permanent delete: DELETE /api/ensemble/teams/:id/purge
+    const purgeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
+    if (purgeMatch && method === 'DELETE') {
+      const result = deleteTeamPermanently(purgeMatch[1])
       if (result.error) return json(res, { error: result.error }, result.status, origin)
       return json(res, result.data, result.status, origin)
     }
@@ -194,6 +428,249 @@ const server = http.createServer(async (req, res) => {
       return json(res, result.data, result.status, origin)
     }
 
+    // SSE stream: /api/ensemble/teams/:id/stream
+    const streamMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/stream$/)
+    if (streamMatch && method === 'GET') {
+      const teamId = streamMatch[1]
+
+      // Validate team exists before opening the stream
+      const teamResult = getEnsembleTeam(teamId)
+      if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
+
+      // Build SSE headers, starting from CORS headers
+      const sseHeaders = buildCorsHeaders(origin)
+      sseHeaders['Content-Type'] = 'text/event-stream'
+      sseHeaders['Cache-Control'] = 'no-cache'
+      sseHeaders['Connection'] = 'keep-alive'
+
+      res.writeHead(200, sseHeaders)
+
+      // Send initial state
+      const initData = teamResult.data
+      res.write(`event: init\ndata: ${JSON.stringify(initData)}\n\n`)
+
+      // Track the latest message timestamp for incremental polling
+      let lastTimestamp: string | undefined
+      const messages = initData!.messages
+      if (messages.length > 0) {
+        lastTimestamp = messages[messages.length - 1].timestamp
+      }
+
+      // Poll for new messages every 2 seconds
+      const interval = setInterval(() => {
+        const feedResult = getTeamFeed(teamId, lastTimestamp)
+        if (feedResult.error) {
+          // Team was deleted or errored — close the stream
+          res.write(`event: error\ndata: ${JSON.stringify({ error: feedResult.error })}\n\n`)
+          res.end()
+          return
+        }
+
+        const newMessages = feedResult.data!.messages
+        if (newMessages.length > 0) {
+          lastTimestamp = newMessages[newMessages.length - 1].timestamp
+          res.write(`event: message\ndata: ${JSON.stringify({ messages: newMessages })}\n\n`)
+        }
+
+        // Check if team has been disbanded
+        const currentTeam = getEnsembleTeam(teamId)
+        if (currentTeam.data?.team.status === 'disbanded') {
+          res.write(`event: disbanded\ndata: ${JSON.stringify({ team: currentTeam.data.team })}\n\n`)
+          res.end()
+        }
+      }, 2000)
+      interval.unref()
+
+      const connection: SseConnection = { res, interval, teamId }
+      activeSseConnections.add(connection)
+
+      // Clean up on client disconnect
+      req.on('close', () => {
+        clearInterval(interval)
+        activeSseConnections.delete(connection)
+      })
+
+      return
+    }
+
+    // SSE stream test page: /api/ensemble/teams/:id/stream/test
+    const streamTestMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/stream\/test$/)
+    if (streamTestMatch && method === 'GET') {
+      const teamId = streamTestMatch[1]
+      const html = `<!DOCTYPE html>
+<html>
+<head><title>SSE Test — Team ${teamId}</title></head>
+<body>
+<h1>SSE Stream Test — Team ${teamId}</h1>
+<pre id="log"></pre>
+<script>
+const log = document.getElementById('log');
+function append(text) { log.textContent += text + '\\n'; }
+const es = new EventSource('/api/ensemble/teams/${teamId}/stream');
+es.addEventListener('init', e => { append('[init] ' + e.data); });
+es.addEventListener('message', e => { append('[message] ' + e.data); });
+es.addEventListener('disbanded', e => { append('[disbanded] ' + e.data); es.close(); });
+es.addEventListener('error', e => { append('[error] ' + (e.data || 'connection error')); });
+es.onerror = () => { append('[onerror] EventSource connection lost'); };
+</script>
+</body>
+</html>`;
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end(html)
+      return
+    }
+
+    // -----------------------------------------------------------------------
+    // Session interaction endpoints
+    // -----------------------------------------------------------------------
+
+    // List all active sessions: GET /api/ensemble/sessions
+    if (path === '/api/ensemble/sessions' && method === 'GET') {
+      const runtime = getRuntime()
+      const sessions = await runtime.listSessions()
+      return json(res, {
+        sessions: sessions.map(s => ({
+          name: s.name,
+          exists: true,
+          workingDirectory: s.workingDirectory,
+        })),
+      }, 200, origin)
+    }
+
+    // Session output: GET /api/ensemble/sessions/:name/output
+    const sessionOutputMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/output$/)
+    if (sessionOutputMatch && method === 'GET') {
+      const sessionName = sessionOutputMatch[1]
+      if (!isValidSessionName(sessionName)) {
+        return json(res, { error: 'Invalid session name' }, 400, origin)
+      }
+
+      const lines = Math.max(1, Math.min(10000, parseInt(url.searchParams.get('lines') || '200', 10) || 200))
+      const runtime = getRuntime()
+      const exists = await runtime.sessionExists(sessionName)
+
+      if (!exists) {
+        return json(res, { output: '', session: sessionName, exists: false }, 200, origin)
+      }
+
+      const output = await runtime.capturePane(sessionName, lines)
+      return json(res, { output, session: sessionName, exists: true }, 200, origin)
+    }
+
+    // Session input: POST /api/ensemble/sessions/:name/input
+    const sessionInputMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/input$/)
+    if (sessionInputMatch && method === 'POST') {
+      const sessionName = sessionInputMatch[1]
+      if (!isValidSessionName(sessionName)) {
+        return json(res, { error: 'Invalid session name' }, 400, origin)
+      }
+
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const text = body.text
+      if (typeof text !== 'string') {
+        return json(res, { error: 'Bad Request: "text" must be a string' }, 400, origin)
+      }
+
+      const enter = typeof body.enter === 'boolean' ? body.enter : false
+      const literal = typeof body.literal === 'boolean' ? body.literal : true
+
+      const runtime = getRuntime()
+      const exists = await runtime.sessionExists(sessionName)
+      if (!exists) {
+        return json(res, { error: `Session "${sessionName}" not found` }, 404, origin)
+      }
+
+      await runtime.sendKeys(sessionName, text, { literal, enter })
+      return json(res, { ok: true }, 200, origin)
+    }
+
+    // Session stream (SSE): GET /api/ensemble/sessions/:name/stream
+    const sessionStreamMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/stream$/)
+    if (sessionStreamMatch && method === 'GET') {
+      const sessionName = sessionStreamMatch[1]
+      if (!isValidSessionName(sessionName)) {
+        return json(res, { error: 'Invalid session name' }, 400, origin)
+      }
+
+      const runtime = getRuntime()
+      const exists = await runtime.sessionExists(sessionName)
+      if (!exists) {
+        return json(res, { error: `Session "${sessionName}" not found` }, 404, origin)
+      }
+
+      // Build SSE headers, starting from CORS headers
+      const sseHeaders = buildCorsHeaders(origin)
+      sseHeaders['Content-Type'] = 'text/event-stream'
+      sseHeaders['Cache-Control'] = 'no-cache'
+      sseHeaders['Connection'] = 'keep-alive'
+
+      res.writeHead(200, sseHeaders)
+
+      // Send initial capture
+      const initialOutput = await runtime.capturePane(sessionName, 500)
+      res.write(`event: output\ndata: ${JSON.stringify({ output: initialOutput, timestamp: new Date().toISOString() })}\n\n`)
+
+      let lastOutput = initialOutput
+
+      // Poll every 500ms for changes
+      const interval = setInterval(async () => {
+        try {
+          const sessionStillExists = await runtime.sessionExists(sessionName)
+          if (!sessionStillExists) {
+            res.write(`event: error\ndata: ${JSON.stringify({ error: 'Session no longer exists' })}\n\n`)
+            res.end()
+            return
+          }
+
+          const currentOutput = await runtime.capturePane(sessionName, 500)
+          if (currentOutput !== lastOutput) {
+            lastOutput = currentOutput
+            res.write(`event: output\ndata: ${JSON.stringify({ output: currentOutput, timestamp: new Date().toISOString() })}\n\n`)
+          }
+        } catch {
+          // Capture failed — session may have been destroyed
+          res.write(`event: error\ndata: ${JSON.stringify({ error: 'Failed to capture session output' })}\n\n`)
+          res.end()
+        }
+      }, 500)
+      interval.unref()
+
+      const connection: SessionSseConnection = { res, interval, sessionName }
+      activeSessionSseConnections.add(connection)
+
+      // Clean up on client disconnect
+      req.on('close', () => {
+        clearInterval(interval)
+        activeSessionSseConnections.delete(connection)
+      })
+
+      return
+    }
+
+    // Serve static SPA files in production
+    const webDistDir = nodePath.join(__dirname, 'web', 'dist')
+    if (fs.existsSync(nodePath.join(webDistDir, 'index.html'))) {
+      // Try to serve the file from web/dist
+      const filePath = nodePath.join(webDistDir, url.pathname === '/' ? 'index.html' : url.pathname)
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = nodePath.extname(filePath)
+        const mimeTypes: Record<string, string> = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.ico': 'image/x-icon' }
+        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' })
+        fs.createReadStream(filePath).pipe(res)
+        return
+      }
+      // SPA fallback: serve index.html for client-side routing
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      fs.createReadStream(nodePath.join(webDistDir, 'index.html')).pipe(res)
+      return
+    }
+
     json(res, { error: 'Not found' }, 404, origin)
   } catch (err) {
     console.error('[Server] Error:', err)
@@ -203,15 +680,17 @@ const server = http.createServer(async (req, res) => {
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[Ensemble] Port ${PORT} is already in use on ${HOST}. Stop the other process or set ENSEMBLE_PORT to a different port.`)
+    console.error(`${color.brightRed}\u2717${color.reset} Port ${PORT} is already in use on ${HOST}. Stop the other process or set ENSEMBLE_PORT to a different port.`)
     process.exit(1)
   }
 
-  console.error('[Ensemble] Server failed to start:', err)
+  console.error(`${color.brightRed}\u2717${color.reset} Server failed to start:`, err)
   process.exit(1)
 })
 
 server.listen(PORT, HOST, () => {
-  console.log(`[Ensemble] Server running on http://${HOST}:${PORT}`)
-  console.log(`[Ensemble] Health: http://localhost:${PORT}/api/v1/health`)
+  console.log(styledHeader('ensemble'))
+  styledLog('\u2713', `Server running on http://${HOST}:${PORT}`)
+  console.log(styledStatus('Health', `${color.dim}http://localhost:${PORT}/api/v1/health${color.reset}`))
+  console.log()
 })

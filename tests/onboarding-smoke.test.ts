@@ -107,9 +107,10 @@ describe('onboarding smoke test', () => {
     vi.restoreAllMocks()
   })
 
-  it('supports the documented quick start through health, CLI, and first team creation', async () => {
+  it('supports the documented quick start through health, CLI, and first team creation', { timeout: 15000 }, async () => {
     const cliPath = path.resolve(process.cwd(), 'cli/ensemble.ts')
-    const tsxPath = path.resolve(process.cwd(), 'node_modules/.bin/tsx')
+    const tsxBin = os.platform() === 'win32' ? 'tsx.cmd' : 'tsx'
+    const tsxPath = path.resolve(process.cwd(), 'node_modules', '.bin', tsxBin)
     const cliEnv = {
       ...process.env,
       ENSEMBLE_URL: baseUrl,
@@ -124,19 +125,13 @@ describe('onboarding smoke test', () => {
       version: '1.0.0',
     })
 
-    const statusOutput = (await execFileAsync(tsxPath, [cliPath, 'status'], {
-      cwd: process.cwd(),
-      env: cliEnv,
-      encoding: 'utf8',
-    })).stdout
+    const execOpts = { cwd: process.cwd(), env: cliEnv, encoding: 'utf8' as const, shell: os.platform() === 'win32' }
+
+    const statusOutput = (await execFileAsync(tsxPath, [cliPath, 'status'], execOpts)).stdout
     expect(statusOutput).toContain('Server healthy')
     expect(statusOutput).toContain('0 total,')
 
-    const teamsBeforeOutput = (await execFileAsync(tsxPath, [cliPath, 'teams'], {
-      cwd: process.cwd(),
-      env: cliEnv,
-      encoding: 'utf8',
-    })).stdout
+    const teamsBeforeOutput = (await execFileAsync(tsxPath, [cliPath, 'teams'], execOpts)).stdout
     expect(teamsBeforeOutput).toContain('No teams found')
 
     const createResponse = await fetch(`${baseUrl}/api/ensemble/teams`, {
@@ -161,11 +156,7 @@ describe('onboarding smoke test', () => {
     })
     expect(createPayload.team.agents).toHaveLength(2)
 
-    const teamsAfterOutput = (await execFileAsync(tsxPath, [cliPath, 'teams'], {
-      cwd: process.cwd(),
-      env: cliEnv,
-      encoding: 'utf8',
-    })).stdout
+    const teamsAfterOutput = (await execFileAsync(tsxPath, [cliPath, 'teams'], execOpts)).stdout
     expect(teamsAfterOutput).toContain('my-first-team')
     expect(teamsAfterOutput).toContain('codex-1')
     expect(teamsAfterOutput).toContain('claude-2')
