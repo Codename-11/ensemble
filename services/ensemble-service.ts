@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
-import type { EnsembleTeam, EnsembleTeamAgent, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleTeamAgent, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile, TeamPlan, PlanStep, TeamConfig } from '../types/ensemble'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
   appendMessage, getMessages, deleteTeam as deleteTeamFromRegistry,
@@ -91,6 +91,54 @@ class EnsembleService {
 
     for (const team of teams) {
       if (this.disbandingTeams.has(team.id)) continue
+
+      // Check maxTurns limit
+      const maxTurns = team.config?.maxTurns
+      if (maxTurns && maxTurns > 0) {
+        const messages = getMessages(team.id)
+        const nonEnsembleMessages = messages.filter(m => m.from !== 'ensemble')
+        if (nonEnsembleMessages.length >= maxTurns) {
+          this.disbandingTeams.add(team.id)
+          try {
+            appendMessage(team.id, {
+              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              content: `Auto-disband triggered: max turns reached (${nonEnsembleMessages.length}/${maxTurns})`,
+              type: 'chat', timestamp: new Date().toISOString(),
+            })
+            await writeDisbandSummary(team.id)
+            await disbandTeam(team.id, 'auto')
+          } catch (err) {
+            console.error(`[Ensemble] Auto-disband (maxTurns) failed for ${team.id}:`, err)
+          } finally {
+            this.disbandingTeams.delete(team.id)
+          }
+          continue
+        }
+      }
+
+      // Check runtime timeout
+      const timeoutMs = team.config?.timeoutMs
+      if (timeoutMs && timeoutMs > 0) {
+        const elapsed = Date.now() - new Date(team.createdAt).getTime()
+        if (elapsed >= timeoutMs) {
+          this.disbandingTeams.add(team.id)
+          try {
+            appendMessage(team.id, {
+              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              content: `Auto-disband triggered: runtime timeout reached (${Math.round(elapsed / 60000)}min / ${Math.round(timeoutMs / 60000)}min)`,
+              type: 'chat', timestamp: new Date().toISOString(),
+            })
+            await writeDisbandSummary(team.id)
+            await disbandTeam(team.id, 'auto')
+          } catch (err) {
+            console.error(`[Ensemble] Auto-disband (timeout) failed for ${team.id}:`, err)
+          } finally {
+            this.disbandingTeams.delete(team.id)
+          }
+          continue
+        }
+      }
+
       if (!this.shouldAutoDisband(team)) continue
 
       this.disbandingTeams.add(team.id)
@@ -131,6 +179,10 @@ class EnsembleService {
     const activeAgents = team.agents.filter(agent => agent.status === 'active')
     if (activeAgents.length === 0) return false
 
+    // Use per-team config with fallback to module-level defaults
+    const completionWindowMs = team.config?.completionWindowMs ?? COMPLETION_SIGNAL_WINDOW_MS
+    const singleSignalIdleMs = team.config?.singleSignalIdleMs ?? SINGLE_SIGNAL_IDLE_THRESHOLD_MS
+
     const idleForMs = Date.now() - lastTimestamp
     const activeAgentNames = new Set(activeAgents.map(agent => agent.name))
     const completionSignals = messages
@@ -142,8 +194,8 @@ class EnsembleService {
       .filter((signal): signal is CompletionSignal => !Number.isNaN(signal.timestamp))
       .sort((a, b) => a.timestamp - b.timestamp)
 
-    if (this.hasTwoRecentCompletionSignals(completionSignals)) return true
-    if (idleForMs <= SINGLE_SIGNAL_IDLE_THRESHOLD_MS) return false
+    if (this.hasTwoRecentCompletionSignals(completionSignals, completionWindowMs)) return true
+    if (idleForMs <= singleSignalIdleMs) return false
     return completionSignals.length >= 1
   }
 
@@ -151,10 +203,10 @@ class EnsembleService {
     return COMPLETION_PATTERNS.some(pattern => pattern.test(content))
   }
 
-  private hasTwoRecentCompletionSignals(signals: CompletionSignal[]): boolean {
+  private hasTwoRecentCompletionSignals(signals: CompletionSignal[], windowMs: number = COMPLETION_SIGNAL_WINDOW_MS): boolean {
     for (let i = 0; i < signals.length; i++) {
       for (let j = i + 1; j < signals.length; j++) {
-        if (signals[j].timestamp - signals[i].timestamp > COMPLETION_SIGNAL_WINDOW_MS) break
+        if (signals[j].timestamp - signals[i].timestamp > windowMs) break
         if (signals[i].agentName !== signals[j].agentName) return true
       }
     }
@@ -788,6 +840,39 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
   return { data: { messages: getMessages(teamId, since) }, status: 200 }
 }
 
+/**
+ * Detect a numbered plan/step list in message content.
+ * Returns a TeamPlan if at least 3 numbered steps are found, otherwise null.
+ */
+export function detectPlan(content: string, messageId: string): TeamPlan | null {
+  // Match patterns: "1. ", "1) ", "Step 1:", "Phase 1:"
+  const stepPattern = /^[ \t]*(?:(?:step|phase)\s+)?(\d+)[.):\s]\s*(.+)/gim
+  const steps: PlanStep[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = stepPattern.exec(content)) !== null) {
+    const stepText = match[2].trim()
+    // Skip empty or very short step text (likely not a real step)
+    if (stepText.length < 3) continue
+    steps.push({
+      id: `${messageId}-step-${steps.length}`,
+      index: steps.length,
+      text: stepText,
+      status: 'pending',
+    })
+  }
+
+  // Require at least 3 steps to count as a plan
+  if (steps.length < 3) return null
+
+  return {
+    steps,
+    sourceMessageId: messageId,
+    detectedAt: new Date().toISOString(),
+    version: 1,
+  }
+}
+
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
   existingId?: string, existingTimestamp?: string,
@@ -801,8 +886,30 @@ export async function sendTeamMessage(
   }
   appendMessage(teamId, message)
 
-  // Determine which agents should receive this message in their tmux pane
+  // Detect plan in non-ensemble messages
   const sender = from || 'user'
+  if (sender !== 'ensemble') {
+    const detectedPlan = detectPlan(content, message.id)
+    if (detectedPlan) {
+      const existingPlan = team.plan
+      // Check if sender is a lead agent (first agent or role includes 'lead')
+      const senderAgent = team.agents.find(a => a.name === sender)
+      const isLead = senderAgent && (
+        senderAgent === team.agents[0] ||
+        senderAgent.role.toLowerCase().includes('lead')
+      )
+      // Update plan if new one has more steps or is from a lead agent
+      const shouldUpdate = !existingPlan ||
+        detectedPlan.steps.length > existingPlan.steps.length ||
+        isLead
+      if (shouldUpdate) {
+        const version = existingPlan ? existingPlan.version + 1 : 1
+        updateTeam(teamId, { plan: { ...detectedPlan, version } })
+      }
+    }
+  }
+
+  // Determine which agents should receive this message in their tmux pane
   const recipients = to === 'team'
     ? team.agents.filter(a => a.status === 'active' && a.name !== sender)
     : team.agents.filter(a => a.status === 'active' && a.name === to)
@@ -1146,6 +1253,278 @@ export async function cloneTeam(
       })
     }
   }
+
+  return result
+}
+
+/* ── Export types ────────────────────────────────────────────────── */
+
+interface ExportPromptResult {
+  prompt: string
+  actionItems: string[]
+  sourceTeam: string
+}
+
+interface ExportJsonResult {
+  task: string
+  plan: { steps: string[] }
+  summary: string
+  findings: string[]
+  actionItems: string[]
+  messages: Array<{ from: string; content: string }>
+}
+
+/**
+ * Export a team's output (plan, summary, findings) in a specified format.
+ * Designed to feed collab output into the next action.
+ */
+export function exportTeam(
+  teamId: string,
+  format: 'prompt' | 'json' | 'markdown',
+): ServiceResult<{ prompt?: string; actionItems?: string[]; sourceTeam?: string; export?: ExportJsonResult; markdown?: string }> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  const allMessages = getMessages(teamId)
+  const agentMessages = allMessages
+    .filter(m => m.from !== 'ensemble')
+    .slice(-50)
+
+  // Extract plan steps if available
+  const planSteps: string[] = team.plan?.steps
+    ? team.plan.steps.map(s => s.text)
+    : []
+
+  // Extract action items from messages — lines that look like action items
+  const actionItemPatterns = [
+    /^[-*]\s+(?:TODO|FIXME|ACTION|FIX|ADD|UPDATE|REMOVE|CREATE|IMPLEMENT|WRITE|REFACTOR):\s*/i,
+    /^[-*]\s+/,
+    /^\d+\.\s+/,
+  ]
+
+  const actionItems: string[] = []
+  for (const msg of agentMessages) {
+    const lines = msg.content.split('\n')
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed.length < 10 || trimmed.length > 200) continue
+      if (actionItemPatterns.some(p => p.test(trimmed))) {
+        // Clean the prefix
+        const cleaned = trimmed
+          .replace(/^[-*]\s+(?:TODO|FIXME|ACTION|FIX|ADD|UPDATE|REMOVE|CREATE|IMPLEMENT|WRITE|REFACTOR):\s*/i, '')
+          .replace(/^[-*]\s+/, '')
+          .replace(/^\d+\.\s+/, '')
+        if (cleaned.length >= 8) actionItems.push(cleaned)
+      }
+    }
+  }
+
+  // Use plan steps as action items if no explicit ones found
+  const finalActionItems = actionItems.length > 0 ? actionItems : planSteps
+
+  // Summary text
+  const summaryText = team.result?.aiSummary || team.result?.summary || ''
+
+  // Findings from discoveries + decisions
+  const findings: string[] = [
+    ...(team.result?.discoveries || []),
+    ...(team.result?.decisions || []),
+  ]
+
+  // Key agent messages (filtered for substance, not noise)
+  const keyMessages = agentMessages
+    .filter(m => m.content.length > 50)
+    .slice(-20)
+    .map(m => ({ from: m.from, content: m.content.slice(0, 500) }))
+
+  if (format === 'prompt') {
+    const parts: string[] = []
+
+    parts.push(`Execute the following plan from team ${team.name}:`)
+    parts.push('')
+
+    if (team.description) {
+      parts.push(`Task: ${team.description}`)
+      parts.push('')
+    }
+
+    if (planSteps.length > 0) {
+      parts.push('Plan:')
+      planSteps.forEach((step, i) => {
+        parts.push(`${i + 1}. ${step}`)
+      })
+      parts.push('')
+    }
+
+    if (finalActionItems.length > 0 && finalActionItems !== planSteps) {
+      parts.push('Action Items:')
+      finalActionItems.forEach((item, i) => {
+        parts.push(`${i + 1}. ${item}`)
+      })
+      parts.push('')
+    }
+
+    if (summaryText) {
+      parts.push(`Context: ${summaryText}`)
+      parts.push('')
+    }
+
+    if (findings.length > 0) {
+      parts.push('Findings:')
+      findings.forEach(f => parts.push(`- ${f}`))
+      parts.push('')
+    }
+
+    const prompt = parts.join('\n').trim()
+
+    return {
+      data: {
+        prompt,
+        actionItems: finalActionItems,
+        sourceTeam: team.id,
+      },
+      status: 200,
+    }
+  }
+
+  if (format === 'json') {
+    const exportData: ExportJsonResult = {
+      task: team.description,
+      plan: { steps: planSteps },
+      summary: summaryText,
+      findings,
+      actionItems: finalActionItems,
+      messages: keyMessages,
+    }
+    return { data: { export: exportData }, status: 200 }
+  }
+
+  if (format === 'markdown') {
+    const lines: string[] = []
+
+    lines.push(`# Team Report: ${team.name}`)
+    lines.push('')
+    lines.push(`**Status:** ${team.status}`)
+    lines.push(`**Created:** ${team.createdAt}`)
+    if (team.completedAt) lines.push(`**Completed:** ${team.completedAt}`)
+    lines.push(`**Agents:** ${team.agents.map(a => a.name).join(', ')}`)
+    lines.push('')
+
+    lines.push('## Task')
+    lines.push('')
+    lines.push(team.description)
+    lines.push('')
+
+    if (summaryText) {
+      lines.push('## Summary')
+      lines.push('')
+      lines.push(summaryText)
+      lines.push('')
+    }
+
+    if (planSteps.length > 0) {
+      lines.push('## Plan')
+      lines.push('')
+      planSteps.forEach((step, i) => {
+        lines.push(`${i + 1}. ${step}`)
+      })
+      lines.push('')
+    }
+
+    if (finalActionItems.length > 0) {
+      lines.push('## Action Items')
+      lines.push('')
+      finalActionItems.forEach(item => {
+        lines.push(`- ${item}`)
+      })
+      lines.push('')
+    }
+
+    if (findings.length > 0) {
+      lines.push('## Findings')
+      lines.push('')
+      findings.forEach(f => {
+        lines.push(`- ${f}`)
+      })
+      lines.push('')
+    }
+
+    if (team.result?.filesChanged && team.result.filesChanged.length > 0) {
+      lines.push('## Files Changed')
+      lines.push('')
+      team.result.filesChanged.forEach(f => {
+        lines.push(`- \`${f}\``)
+      })
+      lines.push('')
+    }
+
+    if (keyMessages.length > 0) {
+      lines.push('## Key Messages')
+      lines.push('')
+      keyMessages.forEach(m => {
+        lines.push(`**${m.from}:** ${m.content}`)
+        lines.push('')
+      })
+    }
+
+    return { data: { markdown: lines.join('\n') }, status: 200 }
+  }
+
+  return { error: 'Invalid format. Use "prompt", "json", or "markdown".', status: 400 }
+}
+
+/**
+ * Execute a team's plan/findings by creating a new team with the exported
+ * prompt as the task description.
+ *
+ * Similar to cloneTeam, but the description becomes the exported prompt
+ * instead of the original task.
+ */
+export async function executeTeam(
+  sourceTeamId: string,
+  options: { agents: Array<{ program: string; role?: string }>; workingDirectory?: string } = { agents: [] },
+): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  // Build the prompt from the source team's output
+  const exportResult = exportTeam(sourceTeamId, 'prompt')
+  if (exportResult.error || !exportResult.data?.prompt) {
+    return { error: exportResult.error || 'Failed to export team', status: exportResult.status }
+  }
+
+  const source = getTeam(sourceTeamId)
+  if (!source) return { error: 'Source team not found', status: 404 }
+
+  // Determine agents: use provided list or fall back to source team agents
+  const agents = options.agents.length > 0
+    ? options.agents.map((a, i) => ({
+        program: a.program,
+        role: a.role || (i === 0 ? 'lead' : 'worker'),
+      }))
+    : source.agents.map((a, i) => ({
+        program: a.program,
+        role: a.role || (i === 0 ? 'lead' : 'worker'),
+      }))
+
+  const request: CreateTeamRequest = {
+    name: `exec-${source.name.replace(/-\d+$/, '')}-${Date.now()}`,
+    description: exportResult.data.prompt,
+    agents,
+    feedMode: source.feedMode || 'live',
+    workingDirectory: options.workingDirectory || undefined,
+  }
+
+  const result = await createEnsembleTeam(request)
+  if (result.error || !result.data) return result
+
+  // Seed the new team with a reference to the source
+  appendMessage(result.data.team.id, {
+    id: uuidv4(),
+    teamId: result.data.team.id,
+    from: 'ensemble',
+    to: 'team',
+    content: `Executing plan from team "${source.name}" (${source.id}).`,
+    type: 'chat',
+    timestamp: new Date().toISOString(),
+  })
 
   return result
 }

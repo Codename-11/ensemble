@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Rocket, Plus, X, Loader2, FolderOpen, ChevronDown, Crown, ArrowUp } from 'lucide-react'
+import { Rocket, Plus, X, Loader2, FolderOpen, ChevronDown, ChevronRight, Crown, ArrowUp, Settings } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { CollabTemplateSummary, EnsembleServerInfo } from '../types'
+import type { CollabTemplateSummary, EnsembleServerInfo, TeamConfig } from '../types'
 
 interface AgentInfo {
   id: string
@@ -44,6 +44,11 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
   const [minAgents, setMinAgents] = useState(DEFAULT_MIN_AGENTS)
   const [maxAgents, setMaxAgents] = useState(DEFAULT_MAX_AGENTS)
   const [showDirPicker, setShowDirPicker] = useState(false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [advMaxTurns, setAdvMaxTurns] = useState('')
+  const [advTimeoutMin, setAdvTimeoutMin] = useState('')
+  const [advNudgeMin, setAdvNudgeMin] = useState('')
+  const [advStallMin, setAdvStallMin] = useState('')
 
   // Fetch server info on mount
   useEffect(() => {
@@ -107,6 +112,17 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
     setSubmitting(true)
     setError(null)
 
+    // Build team config from advanced settings (only include non-empty/non-zero values)
+    const config: TeamConfig = {}
+    const parsedMaxTurns = parseInt(advMaxTurns, 10)
+    if (parsedMaxTurns > 0) config.maxTurns = parsedMaxTurns
+    const parsedTimeout = parseFloat(advTimeoutMin)
+    if (parsedTimeout > 0) config.timeoutMs = Math.round(parsedTimeout * 60000)
+    const parsedNudge = parseFloat(advNudgeMin)
+    if (parsedNudge > 0) config.nudgeAfterMs = Math.round(parsedNudge * 60000)
+    const parsedStall = parseFloat(advStallMin)
+    if (parsedStall > 0) config.stallAfterMs = Math.round(parsedStall * 60000)
+
     const body = {
       name: `collab-${Date.now()}`,
       description: task.trim(),
@@ -119,6 +135,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
       templateName: templateName || undefined,
       staged,
       useWorktrees,
+      ...(Object.keys(config).length > 0 ? { config } : {}),
     }
 
     try {
@@ -350,6 +367,75 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Advanced Settings */}
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            <Settings className="size-3.5" />
+            Advanced Settings
+            <ChevronRight className={cn('size-3 transition-transform', showAdvanced && 'rotate-90')} />
+          </button>
+
+          {showAdvanced && (
+            <div className="grid grid-cols-2 gap-3 rounded-lg border border-border bg-muted/20 p-3">
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Max turns
+                <input
+                  type="number"
+                  min="0"
+                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  placeholder="100"
+                  value={advMaxTurns}
+                  onChange={e => setAdvMaxTurns(e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground/50">0 = unlimited</span>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Timeout (minutes)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  placeholder="10"
+                  value={advTimeoutMin}
+                  onChange={e => setAdvTimeoutMin(e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground/50">0 = unlimited</span>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Nudge after (minutes)
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
+                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  placeholder="3"
+                  value={advNudgeMin}
+                  onChange={e => setAdvNudgeMin(e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground/50">default 3 min</span>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+                Stall after (minutes)
+                <input
+                  type="number"
+                  min="1"
+                  step="0.5"
+                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                  placeholder="5"
+                  value={advStallMin}
+                  onChange={e => setAdvStallMin(e.target.value)}
+                />
+                <span className="text-[10px] text-muted-foreground/50">default 5 min</span>
+              </label>
+            </div>
+          )}
         </div>
 
         {/* Error */}

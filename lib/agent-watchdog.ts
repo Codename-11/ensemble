@@ -112,7 +112,11 @@ export class AgentWatchdog {
       const idleMs = nowMs - lastMessageMs
       const currentState = this.state.get(stateKey) ?? { lastMessageAt }
 
-      if (!currentState.nudgedAt && idleMs >= this.nudgeAfterMs) {
+      // Use per-team config overrides, falling back to instance defaults
+      const effectiveNudgeMs = team.config?.nudgeAfterMs ?? this.nudgeAfterMs
+      const effectiveStallMs = team.config?.stallAfterMs ?? this.stallAfterMs
+
+      if (!currentState.nudgedAt && idleMs >= effectiveNudgeMs) {
         try {
           await this.nudgeAgent(team, agent.name, agent.program, agent.hostId)
           this.state.set(stateKey, {
@@ -137,7 +141,7 @@ export class AgentWatchdog {
       if (!currentState.nudgedAt || currentState.stalledAt) continue
 
       const nudgedMs = new Date(currentState.nudgedAt).getTime()
-      if (Number.isNaN(nudgedMs) || nowMs - nudgedMs < this.stallAfterMs) continue
+      if (Number.isNaN(nudgedMs) || nowMs - nudgedMs < effectiveStallMs) continue
 
       console.warn(`[Watchdog] Agent ${agent.name} in team ${team.id} stalled after watchdog nudge`)
       this.deps.appendMessage(team.id, {

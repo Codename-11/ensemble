@@ -11,9 +11,10 @@ import http from 'http'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
   getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently,
-  addAgentToTeam, cloneTeam, listCollabTemplates,
+  addAgentToTeam, cloneTeam, exportTeam, executeTeam, listCollabTemplates,
 } from './services/ensemble-service'
-import { updateTeam } from './lib/ensemble-registry'
+import { getTeam, updateTeam } from './lib/ensemble-registry'
+import type { TeamConfig } from './types/ensemble'
 import { getRuntime } from './lib/agent-runtime'
 import { color, styledHeader, styledLog, styledStatus } from './lib/cli-style'
 
@@ -87,7 +88,7 @@ function isAllowedOrigin(origin: string): boolean {
 function buildCorsHeaders(origin?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Vary': 'Origin',
   }
@@ -257,6 +258,39 @@ const server = http.createServer(async (req, res) => {
       return json(res, result.data, result.status, origin)
     }
 
+    // Update team config: PATCH /api/ensemble/teams/:id/config
+    const configMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/config$/)
+    if (configMatch && method === 'PATCH') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const teamId = configMatch[1]
+      const team = getTeam(teamId)
+      if (!team) return json(res, { error: 'Team not found' }, 404, origin)
+
+      // Merge incoming config with existing config
+      const existingConfig = team.config || {}
+      const newConfig: Record<string, unknown> = { ...existingConfig }
+      const allowedKeys = ['maxTurns', 'timeoutMs', 'nudgeAfterMs', 'stallAfterMs', 'completionWindowMs', 'singleSignalIdleMs']
+      for (const key of allowedKeys) {
+        if (key in body) {
+          const value = Number(body[key])
+          if (Number.isFinite(value) && value >= 0) {
+            newConfig[key] = value
+          }
+        }
+      }
+
+      const updated = updateTeam(teamId, { config: newConfig as TeamConfig })
+      if (!updated) return json(res, { error: 'Failed to update team config' }, 500, origin)
+
+      return json(res, { config: updated.config }, 200, origin)
+    }
+
     // Clone/restart team: POST /api/ensemble/teams/:id/clone
     const cloneMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/clone$/)
     if (cloneMatch && method === 'POST') {
@@ -268,6 +302,80 @@ const server = http.createServer(async (req, res) => {
       })
       if (result.error) return json(res, { error: result.error }, result.status, origin)
       return json(res, result.data, result.status, origin)
+    }
+
+    // Export team output: POST /api/ensemble/teams/:id/export
+    const exportMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/export$/)
+    if (exportMatch && method === 'POST') {
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
+      const format = (typeof body.format === 'string' ? body.format : 'prompt') as 'prompt' | 'json' | 'markdown'
+      if (!['prompt', 'json', 'markdown'].includes(format)) {
+        return json(res, { error: 'Bad Request: format must be "prompt", "json", or "markdown"' }, 400, origin)
+      }
+      const result = exportTeam(exportMatch[1], format)
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
+    // Execute team plan: POST /api/ensemble/teams/:id/execute
+    const executeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/execute$/)
+    if (executeMatch && method === 'POST') {
+      let body: Record<string, unknown> = {}
+      try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
+      const agents = Array.isArray(body.agents)
+        ? (body.agents as Array<{ program: string; role?: string }>).filter(
+            a => typeof a.program === 'string' && a.program.trim(),
+          )
+        : []
+      const workingDirectory = typeof body.workingDirectory === 'string' ? body.workingDirectory : undefined
+      const result = await executeTeam(executeMatch[1], { agents, workingDirectory })
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
+    // Plan step update: PATCH /api/ensemble/teams/:id/plan/:stepId
+    const planStepMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/plan\/([^/]+)$/)
+    if (planStepMatch && method === 'PATCH') {
+      const teamId = planStepMatch[1]
+      const stepId = planStepMatch[2]
+
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+
+      const status = body.status
+      if (typeof status !== 'string' || !['pending', 'in-progress', 'done', 'skipped'].includes(status)) {
+        return json(res, { error: 'Bad Request: "status" must be one of: pending, in-progress, done, skipped' }, 400, origin)
+      }
+
+      const teamResult = getEnsembleTeam(teamId)
+      if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
+
+      const team = teamResult.data!.team
+      if (!team.plan) {
+        return json(res, { error: 'No plan exists for this team' }, 404, origin)
+      }
+
+      const stepIdx = team.plan.steps.findIndex(s => s.id === stepId)
+      if (stepIdx === -1) {
+        return json(res, { error: `Step "${stepId}" not found` }, 404, origin)
+      }
+
+      const updatedSteps = [...team.plan.steps]
+      updatedSteps[stepIdx] = {
+        ...updatedSteps[stepIdx],
+        status: status as 'pending' | 'in-progress' | 'done' | 'skipped',
+        updatedAt: new Date().toISOString(),
+      }
+
+      const updatedPlan = { ...team.plan, steps: updatedSteps }
+      updateTeam(teamId, { plan: updatedPlan })
+
+      return json(res, { step: updatedSteps[stepIdx] }, 200, origin)
     }
 
     // Disband: /api/ensemble/teams/:id/disband

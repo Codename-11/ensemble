@@ -142,6 +142,7 @@ export function App() {
           onSend={sendMessage}
           onDisband={disbandTeam}
           onBack={() => setSelectedTeamId(null)}
+          onNavigateToTeam={(id) => setSelectedTeamId(id)}
         />
       </div>
     )

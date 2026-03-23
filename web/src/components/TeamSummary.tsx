@@ -1,14 +1,18 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
+  Check,
+  ChevronDown,
+  Clipboard,
   Clock,
   FileText,
   Lightbulb,
   ListChecks,
   Loader2,
   MessageCircle,
+  Play,
   Sparkles,
   Users,
-  ChevronDown,
+  Zap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import type { EnsembleTeam, EnsembleMessage } from '../types'
@@ -17,6 +21,7 @@ import { AgentBadge } from './AgentBadge'
 interface TeamSummaryProps {
   team: EnsembleTeam
   messages: EnsembleMessage[]
+  onNavigateToTeam?: (teamId: string) => void
 }
 
 /* ── Status styling helpers ──────────────────────────────────────── */
@@ -77,6 +82,14 @@ const SUMMARY_AGENTS = [
   { id: 'gemini', label: 'Gemini' },
 ]
 
+/* ── Execute agent options ───────────────────────────────────────── */
+
+const EXECUTE_AGENTS = [
+  { id: 'codex', label: 'Codex' },
+  { id: 'claude', label: 'Claude' },
+  { id: 'gemini', label: 'Gemini' },
+]
+
 /* ── Formatting helpers ──────────────────────────────────────────── */
 
 function formatDuration(startIso: string, endIso?: string): string {
@@ -104,7 +117,7 @@ function formatFullDatetime(iso: string): string {
 
 /* ── Component ───────────────────────────────────────────────────── */
 
-export function TeamSummary({ team, messages }: TeamSummaryProps) {
+export function TeamSummary({ team, messages, onNavigateToTeam }: TeamSummaryProps) {
   /* ── Message statistics ──────────────────────────────────────── */
   const stats = useMemo(() => {
     const perAgent: Record<string, number> = {}
@@ -157,6 +170,82 @@ export function TeamSummary({ team, messages }: TeamSummaryProps) {
       setGenerating(false)
     }
   }, [team.id, selectedAgent])
+
+  /* ── Execution chain state ────────────────────────────────────── */
+  const isTerminal = team.status === 'completed' || team.status === 'disbanded' || team.status === 'failed'
+  const [executeAgent1, setExecuteAgent1] = useState(EXECUTE_AGENTS[0].id)
+  const [executeAgent2, setExecuteAgent2] = useState(EXECUTE_AGENTS[1].id)
+  const [executing, setExecuting] = useState(false)
+  const [executeError, setExecuteError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  const handleExecutePlan = useCallback(async () => {
+    setExecuting(true)
+    setExecuteError(null)
+    try {
+      const res = await fetch(`/api/ensemble/teams/${team.id}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agents: [
+            { program: executeAgent1, role: 'lead' },
+            { program: executeAgent2, role: 'worker' },
+          ],
+        }),
+      })
+      const data = await res.json() as { team?: { id: string }; error?: string }
+      if (!res.ok) throw new Error(data.error || `Failed: ${res.status}`)
+      showToast('Execution team created')
+      if (data.team?.id && onNavigateToTeam) {
+        onNavigateToTeam(data.team.id)
+      }
+    } catch (err) {
+      setExecuteError(err instanceof Error ? err.message : 'Failed to execute plan')
+    } finally {
+      setExecuting(false)
+    }
+  }, [team.id, executeAgent1, executeAgent2, onNavigateToTeam, showToast])
+
+  const handleExportPrompt = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ensemble/teams/${team.id}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'prompt' }),
+      })
+      const data = await res.json() as { prompt?: string; error?: string }
+      if (!res.ok) throw new Error(data.error || `Failed: ${res.status}`)
+      if (data.prompt) {
+        await navigator.clipboard.writeText(data.prompt)
+        showToast('Prompt copied to clipboard')
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to export prompt')
+    }
+  }, [team.id, showToast])
+
+  const handleCopyJson = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/ensemble/teams/${team.id}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'json' }),
+      })
+      const data = await res.json() as { export?: unknown; error?: string }
+      if (!res.ok) throw new Error(data.error || `Failed: ${res.status}`)
+      if (data.export) {
+        await navigator.clipboard.writeText(JSON.stringify(data.export, null, 2))
+        showToast('JSON copied to clipboard')
+      }
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Failed to copy JSON')
+    }
+  }, [team.id, showToast])
 
   const disbandReason = team.result?.disbandReason
 
@@ -445,6 +534,74 @@ export function TeamSummary({ team, messages }: TeamSummaryProps) {
           )}
         </div>
       </section>
+
+      {/* ── Actions section (only for terminal teams) ──────────── */}
+      {isTerminal && (
+        <section className="flex flex-col gap-2">
+          <SectionHeading icon={<Zap className="size-4" />} title="Actions" />
+          <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4">
+            {/* Action buttons row */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void handleExecutePlan()}
+                disabled={executing}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              >
+                {executing ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Play className="size-3.5" />
+                )}
+                {executing ? 'Executing...' : 'Execute Plan'}
+              </button>
+
+              <button
+                onClick={() => void handleExportPrompt()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <Clipboard className="size-3.5" />
+                Export Prompt
+              </button>
+
+              <button
+                onClick={() => void handleCopyJson()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              >
+                <FileText className="size-3.5" />
+                Copy JSON
+              </button>
+            </div>
+
+            {/* Agent picker for execute */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>Execute with:</span>
+              <AgentPicker
+                agents={EXECUTE_AGENTS}
+                value={executeAgent1}
+                onChange={setExecuteAgent1}
+              />
+              <span>+</span>
+              <AgentPicker
+                agents={EXECUTE_AGENTS}
+                value={executeAgent2}
+                onChange={setExecuteAgent2}
+              />
+            </div>
+
+            {executeError && (
+              <p className="text-xs text-destructive">{executeError}</p>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ── Toast notification ────────────────────────────────── */}
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 shadow-lg animate-in fade-in slide-in-from-bottom-2">
+          <Check className="size-4 text-green-400" />
+          <span className="text-sm text-foreground">{toast}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -457,6 +614,51 @@ function SectionHeading({ icon, title }: { icon: React.ReactNode; title: string 
       {icon}
       {title}
     </h3>
+  )
+}
+
+/* ── Agent picker dropdown ───────────────────────────────────────── */
+
+function AgentPicker({
+  agents,
+  value,
+  onChange,
+}: {
+  agents: Array<{ id: string; label: string }>
+  value: string
+  onChange: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {agents.find(a => a.id === value)?.label || value}
+        <ChevronDown className="size-3" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-10 mt-1 w-32 rounded-md border border-border bg-card py-1 shadow-lg">
+          {agents.map(agent => (
+            <button
+              key={agent.id}
+              onClick={() => {
+                onChange(agent.id)
+                setOpen(false)
+              }}
+              className={cn(
+                'flex w-full items-center px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted',
+                agent.id === value ? 'text-foreground font-medium' : 'text-muted-foreground',
+              )}
+            >
+              {agent.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 

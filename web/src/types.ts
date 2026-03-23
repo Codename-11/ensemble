@@ -1,5 +1,36 @@
 /** Mirror of backend types for the web client */
 
+export interface TeamConfig {
+  /** Max total messages before auto-disband (0 = unlimited) */
+  maxTurns?: number
+  /** Auto-disband after this many ms of total runtime (0 = unlimited) */
+  timeoutMs?: number
+  /** Watchdog nudge threshold in ms (default 180000 = 3min) */
+  nudgeAfterMs?: number
+  /** Watchdog stall threshold in ms (default 300000 = 5min) */
+  stallAfterMs?: number
+  /** Completion signal idle window in ms (default 60000 = 1min) */
+  completionWindowMs?: number
+  /** Single signal idle threshold in ms (default 120000 = 2min) */
+  singleSignalIdleMs?: number
+}
+
+export interface PlanStep {
+  id: string
+  index: number
+  text: string
+  status: 'pending' | 'in-progress' | 'done' | 'skipped'
+  agentAssigned?: string
+  updatedAt?: string
+}
+
+export interface TeamPlan {
+  steps: PlanStep[]
+  sourceMessageId?: string
+  detectedAt: string
+  version: number
+}
+
 export interface EnsembleTeam {
   id: string
   name: string
@@ -11,6 +42,8 @@ export interface EnsembleTeam {
   completedAt?: string
   feedMode: 'silent' | 'summary' | 'live'
   result?: EnsembleTeamResult
+  plan?: TeamPlan
+  config?: TeamConfig
 }
 
 export interface EnsembleTeamAgent {

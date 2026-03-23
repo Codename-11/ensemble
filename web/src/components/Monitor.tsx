@@ -22,6 +22,8 @@ import type { EnsembleTeam, EnsembleMessage, EnsembleServerInfo } from '../types
 import { AgentBadge } from './AgentBadge'
 import { ControlPanel } from './ControlPanel'
 import { MessageFeed } from './MessageFeed'
+import { PlanTab } from './PlanTab'
+import { TeamControls } from './TeamControls'
 import { TeamSummary } from './TeamSummary'
 import { TerminalPanel } from './TerminalPanel'
 
@@ -33,6 +35,7 @@ interface MonitorProps {
   onSend: (content: string, to?: string) => Promise<void>
   onDisband: () => Promise<void>
   onBack: () => void
+  onNavigateToTeam?: (teamId: string) => void
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -78,10 +81,10 @@ function getLastMessagePreview(agentName: string, messages: EnsembleMessage[]): 
 
 const FALLBACK_AGENT_PROGRAMS = ['codex', 'claude', 'gemini', 'aider', 'opencode']
 
-export function Monitor({ team, messages, connected, error, onSend, onDisband, onBack }: MonitorProps) {
+export function Monitor({ team, messages, connected, error, onSend, onDisband, onBack, onNavigateToTeam }: MonitorProps) {
   const isTerminal = team.status === 'completed' || team.status === 'disbanded' || team.status === 'failed'
   const isActive = team.status === 'active' || team.status === 'forming'
-  const [viewMode, setViewMode] = useState<'summary' | 'messages'>(isTerminal ? 'summary' : 'messages')
+  const [viewMode, setViewMode] = useState<'summary' | 'messages' | 'plan'>(isTerminal ? 'summary' : 'messages')
   const duration = useMemo(() => formatDuration(team.createdAt, team.completedAt), [team.createdAt, team.completedAt])
 
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed)
@@ -237,6 +240,25 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
         >
           Messages
           {viewMode === 'messages' && (
+            <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
+          )}
+        </button>
+        <button
+          onClick={() => setViewMode('plan')}
+          className={cn(
+            'relative flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors',
+            viewMode === 'plan'
+              ? 'text-foreground'
+              : 'text-muted-foreground hover:text-foreground/80',
+          )}
+        >
+          Plan
+          {team.plan && (
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[0.6rem] font-medium tabular-nums text-muted-foreground">
+              {team.plan.steps.length} steps
+            </span>
+          )}
+          {viewMode === 'plan' && (
             <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-primary" />
           )}
         </button>
@@ -414,6 +436,8 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
               )}
             </div>
           )}
+          {/* Team Controls */}
+          <TeamControls team={team} messageCount={messages.length} />
           {/* Quick Reference */}
           <QuickReference teamId={team.id} />
         </aside>
@@ -424,7 +448,9 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
           viewMode === 'messages' && selectedSession ? 'flex-row' : 'flex-col',
         )}>
           {viewMode === 'summary' ? (
-            <TeamSummary team={team} messages={messages} />
+            <TeamSummary team={team} messages={messages} onNavigateToTeam={onNavigateToTeam} />
+          ) : viewMode === 'plan' ? (
+            <PlanTab plan={team.plan} teamId={team.id} isActive={isActive} />
           ) : (
             <>
               <div className={cn(
