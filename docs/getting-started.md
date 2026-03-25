@@ -153,7 +153,7 @@ npx agent-forge monitor <team-id>
 npx agent-forge monitor --latest
 
 # Or attach to the tmux monitor session
-tmux attach -t ensemble-<team-id>
+tmux attach -t agent-forge-<team-id>
 ```
 
 ### Monitor keybindings
@@ -188,7 +188,7 @@ curl -X DELETE http://localhost:23000/api/agent-forge/teams/<team-id>
 1. **Server receives team request** — validates agents, creates team record
 2. **Agents spawn** — each gets its own tmux session with the task prompt
 3. **Communication** — agents use `team-say`/`team-read` scripts to exchange messages
-4. **Bridge** — the ensemble-bridge polls for new messages and delivers them between agents
+4. **Bridge** — the agent-forge-bridge polls for new messages and delivers them between agents
 5. **Monitor** — TUI shows the conversation in real time
 6. **Auto-disband** — when agents signal completion, the team wraps up automatically
 7. **Summary** — results are persisted and optionally sent via Telegram

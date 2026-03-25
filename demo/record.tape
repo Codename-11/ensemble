@@ -1,8 +1,8 @@
-# Ensemble demo — Codex + Claude reviewing code together
-# Usage: cd ensemble && vhs demo/record.tape
-# Output: demo/ensemble-demo.gif
+# AgentForge demo — Codex + Claude reviewing code together
+# Usage: cd agent-forge && vhs demo/record.tape
+# Output: demo/agent-forge-demo.gif
 
-Output demo/ensemble-demo.gif
+Output demo/agent-forge-demo.gif
 
 Set Shell "zsh"
 Set FontSize 15

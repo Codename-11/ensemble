@@ -15,14 +15,14 @@ Based on competitive analysis of oh-my-claudecode (10k⭐), overstory (1k⭐), m
 ### Round 1: Telegram notifications on collab complete
 - When team disbands, send summary to Telegram
 - Bot token and chat ID already in global CLAUDE.md
-- Add to ensemble-service.ts disbandTeam()
+- Add to agent-forge-service.ts disbandTeam()
 - Users LOVE getting pinged when their agents finish
 
 ### Round 2: Smart agent role assignment
 - Instead of both agents doing everything, assign roles:
   - Lead agent: architecture, planning, code review
   - Worker agent: implementation, testing
-- Update buildPrompt() in ensemble-service.ts
+- Update buildPrompt() in agent-forge-service.ts
 - Better prompts = better collab output
 
 ### Round 3: Cost/token awareness in summary

@@ -574,7 +574,7 @@ export function SettingsPage({ onBack }: { onBack: () => void }) {
                         // Prompt customization is stored client-side for now
                         // (server-side persistence would require a config file)
                         try {
-                          localStorage.setItem('ensemble:promptTemplate', promptTemplate)
+                          localStorage.setItem('agent-forge:promptTemplate', promptTemplate)
                           setPromptDirty(false)
                           showToast('success', 'Prompt template saved locally')
                         } catch {
@@ -654,23 +654,27 @@ function AgentKnowledgeSection({ showToast }: { showToast: (type: 'success' | 'e
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
+    // Use the current origin for web-accessible URLs
+    const baseUrl = window.location.origin
+    setSkillPath(`${baseUrl}/docs`)
     fetch('/api/agent-forge/info')
       .then(r => r.json())
       .then((data: { cwd?: string }) => {
         if (data.cwd) {
-          // SKILL.md lives at the project root
-          const path = data.cwd.replace(/\\/g, '/') + '/SKILL.md'
-          setSkillPath(path)
+          // Store local path as fallback for local dev
+          setLocalPath(data.cwd.replace(/\\/g, '/') + '/SKILL.md')
         }
       })
       .catch(() => {})
   }, [])
 
+  const [localPath, setLocalPath] = useState<string | null>(null)
+
   function copyPath() {
     if (!skillPath) return
     navigator.clipboard.writeText(skillPath).then(() => {
       setCopied(true)
-      showToast('success', 'SKILL.md path copied to clipboard')
+      showToast('success', 'URL copied to clipboard')
       setTimeout(() => setCopied(false), 1500)
     }).catch(() => {
       showToast('error', 'Failed to copy')
@@ -689,7 +693,7 @@ function AgentKnowledgeSection({ showToast }: { showToast: (type: 'success' | 'e
           API endpoints, and available MCP tools.
         </p>
 
-        {skillPath && (
+        {skillPath && (<>
           <div className="flex items-center gap-2">
             <code className="flex-1 rounded bg-background px-3 py-2 font-mono text-xs text-foreground/70">
               {skillPath}
@@ -702,13 +706,18 @@ function AgentKnowledgeSection({ showToast }: { showToast: (type: 'success' | 'e
                   ? 'border-green-500/30 bg-green-500/10 text-green-400'
                   : 'border-border text-muted-foreground hover:border-primary/40 hover:text-foreground'
               )}
-              title="Copy SKILL.md path for external agents"
+              title="Copy URL for external agents"
             >
               {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-              {copied ? 'Copied' : 'Copy for agent'}
+              {copied ? 'Copied' : 'Copy URL'}
             </button>
           </div>
-        )}
+          {localPath && (
+            <p className="text-[10px] text-muted-foreground/50">
+              Local path: {localPath}
+            </p>
+          )}
+        </>)}
       </div>
     </section>
   )
@@ -739,7 +748,7 @@ function McpSection({ config, showToast }: { config: ServerConfig; showToast: (t
     })
   }
 
-  const serverPath = mcpServerPath || '<path-to-agent-forge>/mcp/ensemble-mcp-server.mjs'
+  const serverPath = mcpServerPath || '<path-to-agent-forge>/mcp/agent-forge-mcp-server.mjs'
   const apiUrl = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`
 
   const claudeInstallCmd = `claude mcp add agent-forge --env AGENT_FORGE_TEAM_ID=<team-id> --env AGENT_FORGE_AGENT_NAME=<name> --env AGENT_FORGE_API_URL=${apiUrl} -- node ${serverPath}`

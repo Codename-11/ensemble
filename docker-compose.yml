@@ -1,17 +1,17 @@
 version: '3.8'
 services:
-  ensemble:
+  agent-forge:
     build: .
     ports:
       - "23000:23000"
       - "5173:5173"
     volumes:
-      - ensemble-data:/app/.ensemble
-      - /tmp/ensemble:/tmp/ensemble
+      - agent-forge-data:/app/.agent-forge
+      - /tmp/agent-forge:/tmp/agent-forge
     environment:
-      - ENSEMBLE_PORT=23000
-      - ENSEMBLE_HOST=0.0.0.0
+      - AGENT_FORGE_PORT=23000
+      - AGENT_FORGE_HOST=0.0.0.0
     restart: unless-stopped
 
 volumes:
-  ensemble-data:
+  agent-forge-data:

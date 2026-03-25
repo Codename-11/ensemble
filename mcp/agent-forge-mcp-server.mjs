@@ -11,7 +11,7 @@
  *   AGENT_FORGE_API_URL    — API base URL (default: http://localhost:23000)
  *
  * Usage:
- *   node mcp/ensemble-mcp-server.mjs
+ *   node mcp/agent-forge-mcp-server.mjs
  */
 
 import http from 'http'

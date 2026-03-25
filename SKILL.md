@@ -12,13 +12,13 @@ npm run dev  # starts server (:23000) + SPA (:5173)
 
 ### Key directories
 - `server.ts` — HTTP server + API routes + WebSocket + SSE
-- `services/ensemble-service.ts` — core business logic
+- `services/agent-forge-service.ts` — core business logic
 - `lib/agent-spawner.ts` — agent lifecycle management
 - `lib/agent-runtime.ts` — AgentRuntime interface (TmuxRuntime / PtySessionManager)
-- `mcp/ensemble-mcp-server.mjs` — MCP server (team_say, team_read, team_done, team_plan, team_ask)
+- `mcp/agent-forge-mcp-server.mjs` — MCP server (team_say, team_read, team_done, team_plan, team_ask)
 - `web/src/` — React SPA (Tailwind 4 + Zustand + xterm.js)
 - `agents.json` — agent program definitions
-- `types/ensemble.ts` — core TypeScript types
+- `types/agent-forge.ts` — core TypeScript types
 
 ### API endpoints (key ones)
 - `POST /api/agent-forge/teams` — create team

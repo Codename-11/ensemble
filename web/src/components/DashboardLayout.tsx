@@ -48,7 +48,7 @@ export function DashboardLayout({ children, serverOnline, connecting, user, onLo
     navigate(path.split('?')[0])
     // If it's New Team, we signal via URL query then navigate
     if (path.includes('?new=1')) {
-      window.dispatchEvent(new CustomEvent('ensemble:new-team'))
+      window.dispatchEvent(new CustomEvent('agent-forge:new-team'))
     }
   }
 

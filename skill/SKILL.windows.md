@@ -12,7 +12,7 @@ metadata:
 
 **Language rule:** ALWAYS respond in the same language the user used to invoke /collab. If the user writes in English, all your output (status updates, summaries, everything) must be in English. If Dutch, respond in Dutch. Never mix languages.
 
-Launch a Codex + Claude team. Scripts live in `__ENSEMBLE_DIR__/scripts/`. Runtime files namespaced under `__RUNTIME_ROOT__/<TEAM_ID>/`.
+Launch a Codex + Claude team. Scripts live in `__AGENT_FORGE_DIR__/scripts/`. Runtime files namespaced under `__RUNTIME_ROOT__/<TEAM_ID>/`.
 
 ## Path Convention
 All collab artifacts live in `__RUNTIME_ROOT__/<TEAM_ID>/`:
@@ -30,7 +30,7 @@ All collab artifacts live in `__RUNTIME_ROOT__/<TEAM_ID>/`:
 
 Run the cross-platform launcher. This starts the server (if needed), creates the team, starts the bridge, AND opens the monitor TUI in a new Windows Terminal tab automatically:
 ```bash
-node "__ENSEMBLE_DIR__/scripts/collab-launch.mjs" "$(pwd)" "$TASK_DESCRIPTION"
+node "__AGENT_FORGE_DIR__/scripts/collab-launch.mjs" "$(pwd)" "$TASK_DESCRIPTION"
 ```
 
 Extract TEAM_ID:
@@ -46,7 +46,7 @@ The monitor TUI opens automatically in a new Windows Terminal tab. Tell the user
 
 If the user closed the monitor tab, they can reopen it:
 ```bash
-cd "__ENSEMBLE_DIR__" && npx tsx cli/monitor.ts "$TEAM_ID"
+cd "__AGENT_FORGE_DIR__" && npx tsx cli/monitor.ts "$TEAM_ID"
 ```
 
 ### Step 3: Monitoring — the user MUST see the conversation
@@ -107,7 +107,7 @@ When done: summarize the results.
 - Do not truncate or remove `messages.jsonl`
 - Multiple collabs can run simultaneously — each has own `__RUNTIME_ROOT__/<TEAM_ID>/` namespace
 - `team-say.mjs` uses mkdir-based file locking for atomic JSONL writes (cross-platform)
-- `ensemble-bridge.mjs` has single-instance guard, health check, exponential backoff
+- `agent-forge-bridge.mjs` has single-instance guard, health check, exponential backoff
 - `.finished` and `summary.txt` are written by agent-forge service, NOT by scripts
 - Bridge auto-stops when it sees `.finished` marker
 - On Windows, sessions use node-pty instead of tmux — no tmux needed

@@ -5,7 +5,7 @@
  */
 import { useCallback, useRef } from 'react'
 
-const MUTE_KEY = 'ensemble:sounds:muted'
+const MUTE_KEY = 'agent-forge:sounds:muted'
 
 function getMuted(): boolean {
   try {

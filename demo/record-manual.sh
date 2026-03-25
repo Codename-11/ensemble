@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manual recording guide for the ensemble demo
+# Manual recording guide for the agent-forge demo
 # This sets up the perfect tmux layout for screen recording
 set -euo pipefail
 
@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo ""
-echo "  ◈ Ensemble Demo Recording Setup"
+echo "  ◈ Agent-Forge Demo Recording Setup"
 echo ""
 echo "  This script sets up a tmux session optimized for recording."
 echo "  Use a screen recorder (QuickTime, OBS, or Kap) to capture the window."
@@ -19,7 +19,7 @@ tmux kill-session -t demo 2>/dev/null || true
 # Create session with a nice size
 tmux new-session -d -s demo -x 120 -y 35 -c "$REPO_DIR"
 
-# Make sure ensemble server is running
+# Make sure agent-forge server is running
 if ! curl -sf http://localhost:23000/api/v1/health > /dev/null 2>&1; then
   tmux send-keys -t demo "npm run dev &" Enter
   sleep 3

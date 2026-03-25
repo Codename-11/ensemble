@@ -1,7 +1,7 @@
 /**
  * cli-style — Shared ANSI color constants and styled output helpers.
  *
- * Consolidates the color definitions duplicated across cli/ensemble.ts,
+ * Consolidates the color definitions duplicated across cli/agent-forge.ts,
  * cli/monitor.ts, and scripts/collab-launch.mjs into a single module.
  */
 

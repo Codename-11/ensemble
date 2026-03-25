@@ -6,15 +6,15 @@ function trimConfiguredDir(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined
 }
 
-export function getEnsembleDataDir(): string {
+export function getAgentForgeDataDir(): string {
   return trimConfiguredDir(process.env.AGENT_FORGE_DATA_DIR)
     || path.join(os.homedir(), '.agent-forge')
 }
 
-export function getEnsembleRegistryDir(): string {
-  return path.join(getEnsembleDataDir(), 'registry')
+export function getAgentForgeRegistryDir(): string {
+  return path.join(getAgentForgeDataDir(), 'registry')
 }
 
 export function getHostsConfigPath(): string {
-  return path.join(getEnsembleDataDir(), 'hosts.json')
+  return path.join(getAgentForgeDataDir(), 'hosts.json')
 }

@@ -6,11 +6,11 @@
 
 import { v4 as uuidv4 } from 'uuid'
 import { createHash, createHmac, randomBytes } from 'crypto'
-import type { EnsembleTeam, EnsembleTeamAgent, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile, TeamPlan, PlanStep, TeamConfig, RemoteParticipant, JoinTeamRequest, JoinTeamResponse, TeamVisibility, SessionLifecycle, ShareLink, LobbyTeam } from '../types/ensemble'
+import type { AgentForgeTeam, AgentForgeTeamAgent, AgentForgeMessage, CreateTeamRequest, CollabTemplatesFile, TeamPlan, PlanStep, TeamConfig, RemoteParticipant, JoinTeamRequest, JoinTeamResponse, TeamVisibility, SessionLifecycle, ShareLink, LobbyTeam } from '../types/agent-forge'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
   appendMessage, getMessages, deleteTeam as deleteTeamFromRegistry,
-} from '../lib/ensemble-registry'
+} from '../lib/agent-forge-registry'
 import {
   spawnLocalAgent, killLocalAgent,
   spawnRemoteAgent as spawnRemote, killRemoteAgent,
@@ -60,7 +60,7 @@ interface CompletionSignal {
 const TELEGRAM_BOT_TOKEN = process.env.AGENT_FORGE_TELEGRAM_BOT_TOKEN || ''
 const TELEGRAM_CHAT_ID = process.env.AGENT_FORGE_TELEGRAM_CHAT_ID || ''
 
-class EnsembleService {
+class AgentForgeService {
   private readonly disbandingTeams = new Set<string>()
   private readonly idleCheckTimer: NodeJS.Timeout
   private readonly watchdog: AgentWatchdog
@@ -97,13 +97,13 @@ class EnsembleService {
       const maxTurns = team.config?.maxTurns
       if (maxTurns && maxTurns > 0) {
         const messages = getMessages(team.id)
-        const nonEnsembleMessages = messages.filter(m => m.from !== 'ensemble')
-        if (nonEnsembleMessages.length >= maxTurns) {
+        const nonAgentForgeMessages = messages.filter(m => m.from !== 'agent-forge')
+        if (nonAgentForgeMessages.length >= maxTurns) {
           this.disbandingTeams.add(team.id)
           try {
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-              content: `Auto-disband triggered: max turns reached (${nonEnsembleMessages.length}/${maxTurns})`,
+              id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
+              content: `Auto-disband triggered: max turns reached (${nonAgentForgeMessages.length}/${maxTurns})`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
             await writeDisbandSummary(team.id)
@@ -125,7 +125,7 @@ class EnsembleService {
           this.disbandingTeams.add(team.id)
           try {
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
               content: `Auto-disband triggered: runtime timeout reached (${Math.round(elapsed / 60000)}min / ${Math.round(timeoutMs / 60000)}min)`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
@@ -145,7 +145,7 @@ class EnsembleService {
       // Check if we already suggested completion — don't spam
       const messages = getMessages(team.id)
       const alreadySuggested = messages.some(m =>
-        m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+        m.from === 'agent-forge' && m.type === 'decision' && m.content.includes('completion_suggested')
       )
 
       if (!alreadySuggested) {
@@ -154,7 +154,7 @@ class EnsembleService {
         appendMessage(team.id, {
           id: uuidv4(),
           teamId: team.id,
-          from: 'ensemble',
+          from: 'agent-forge',
           to: 'team',
           content: 'completion_suggested: Agents appear to have completed their work. Disband team?',
           type: 'decision',
@@ -165,7 +165,7 @@ class EnsembleService {
       } else {
         // Already suggested once — check if 5 min have passed since suggestion
         const suggestionMsg = messages.find(m =>
-          m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+          m.from === 'agent-forge' && m.type === 'decision' && m.content.includes('completion_suggested')
         )
         const suggestedAt = suggestionMsg?.timestamp ? new Date(suggestionMsg.timestamp).getTime() : 0
         const gracePeriodMs = 300_000 // 5 min grace after suggestion
@@ -175,7 +175,7 @@ class EnsembleService {
           this.disbandingTeams.add(team.id)
           try {
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
               content: 'Auto-disband: no response to completion suggestion after 5 minutes.',
               type: 'chat', timestamp: new Date().toISOString(),
             })
@@ -191,13 +191,13 @@ class EnsembleService {
     }
   }
 
-  private shouldAutoDisband(team: EnsembleTeam): boolean {
+  private shouldAutoDisband(team: AgentForgeTeam): boolean {
     // Persistent teams never auto-disband
     if (team.lifecycle === 'persistent') return false
 
     const messages = getMessages(team.id)
-    const nonEnsembleMessages = messages.filter(message => message.from !== 'ensemble')
-    const lastMessage = nonEnsembleMessages[nonEnsembleMessages.length - 1]
+    const nonAgentForgeMessages = messages.filter(message => message.from !== 'agent-forge')
+    const lastMessage = nonAgentForgeMessages[nonAgentForgeMessages.length - 1]
     if (!lastMessage) return false
 
     // Robust timestamp handling: skip idle check if no timestamp available
@@ -249,7 +249,7 @@ class EnsembleService {
   }
 }
 
-const ensembleService = new EnsembleService()
+const agentForgeService = new AgentForgeService()
 
 function formatDuration(durationMs: number): string {
   const durationMin = Math.max(0, Math.round(durationMs / 60000))
@@ -461,9 +461,9 @@ export function buildPromptPreview(params: {
   ].join(' ')
 }
 
-export async function createEnsembleTeam(
+export async function createAgentForgeTeam(
   request: CreateTeamRequest
-): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+): Promise<ServiceResult<{ team: AgentForgeTeam }>> {
   const team = createTeam(request)
 
   // Return immediately with the team in "forming" state.
@@ -481,7 +481,7 @@ export async function addAgentToTeam(
   teamId: string,
   program: string,
   role?: string,
-): Promise<ServiceResult<{ agent: EnsembleTeamAgent }>> {
+): Promise<ServiceResult<{ agent: AgentForgeTeamAgent }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
   if (team.status !== 'active' && team.status !== 'forming') {
@@ -518,7 +518,7 @@ export async function addAgentToTeam(
   // Add recent message context to the prompt so the agent can catch up
   const recentMessages = getMessages(teamId).slice(-10)
   const contextSummary = recentMessages
-    .filter(m => m.from !== 'ensemble')
+    .filter(m => m.from !== 'agent-forge')
     .map(m => `${m.from}: ${m.content.slice(0, 200)}`)
     .join('\n')
   const fullPrompt = `${prompt}\n\nCATCH-UP CONTEXT — here are the last messages from the team:\n${contextSummary}\n\nYou are joining mid-conversation. Read the context above, greet the team, and contribute.`
@@ -537,7 +537,7 @@ export async function addAgentToTeam(
     })
 
     // Build the new agent record
-    const newAgent: EnsembleTeamAgent = {
+    const newAgent: AgentForgeTeamAgent = {
       agentId: spawned.id,
       name: shortName,
       program,
@@ -550,7 +550,7 @@ export async function addAgentToTeam(
 
     // Announce
     appendMessage(teamId, {
-      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
       content: `${shortName} (${program}) has joined the team`,
       type: 'chat', timestamp: new Date().toISOString(),
     })
@@ -599,7 +599,7 @@ export async function addAgentToTeam(
  * The team transitions to "active" on success or "disbanded" if all agents fail.
  * Progress is reported via the team message feed so SSE/polling clients stay informed.
  */
-async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): Promise<void> {
+async function spawnTeamAgents(team: AgentForgeTeam, request: CreateTeamRequest): Promise<void> {
   try {
     const cwd = request.workingDirectory || process.cwd()
     const worktreeMap = new Map<string, WorktreeInfo>()
@@ -620,7 +620,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             team.agents[i].worktreePath = worktreeInfo.path
             team.agents[i].worktreeBranch = worktreeInfo.branch
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
               content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
@@ -628,7 +628,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             const message = err instanceof Error ? err.message : String(err)
             console.error(`[Agent-Forge] Failed to create worktree for ${agentSpec.name}:`, message)
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
               content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
@@ -693,7 +693,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         team.agents[i].status = 'active'
 
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `${agentSpec.name} (${agentSpec.program} @ ${hostId}) has joined #${team.name}`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -702,7 +702,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         console.error(`[Agent-Forge] Failed to spawn ${agentName}:`, message)
         team.agents[i].status = 'idle'
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `Failed to spawn ${agentName}: ${message}`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -713,7 +713,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
     const activeAgents = team.agents.filter(a => a.status === 'active')
     if (activeAgents.length === 0) {
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
         content: `❌ All agents failed to spawn — team disbanded`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -768,7 +768,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
 
       for (const nr of notReady) {
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `❌ ${nr.agent.name} failed to start — timed out`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -776,7 +776,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
 
       if (ready.length < 2) {
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `❌ Team start aborted: only ${ready.length}/${activeAgents.length} agents ready`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -789,7 +789,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
       if (request.staged) {
         // Staged mode: skip normal prompt injection, run plan→exec→verify workflow
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `🚀 All ${ready.length} agents ready — starting staged workflow (plan → exec → verify)`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -825,7 +825,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
           const message = err instanceof Error ? err.message : String(err)
           console.error(`[Agent-Forge] Staged workflow failed for ${team.id}:`, message)
           appendMessage(team.id, {
-            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+            id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
             content: `❌ Staged workflow failed: ${message}`,
             type: 'chat', timestamp: new Date().toISOString(),
           })
@@ -856,7 +856,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err)
               appendMessage(team.id, {
-                id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+                id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
                 content: `❌ Delivery to ${agent.name} failed: ${message}`,
                 type: 'chat', timestamp: new Date().toISOString(),
               })
@@ -866,7 +866,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
         )
 
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
           content: `🚀 All ${ready.length} agents received their task — collaboration started`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -877,7 +877,7 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
     const message = err instanceof Error ? err.message : String(err)
     console.error(`[Agent-Forge] spawnTeamAgents failed for ${team.id}:`, message)
     appendMessage(team.id, {
-      id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+      id: uuidv4(), teamId: team.id, from: 'agent-forge', to: 'team',
       content: `❌ Team setup failed: ${message}`,
       type: 'chat', timestamp: new Date().toISOString(),
     })
@@ -885,21 +885,21 @@ async function spawnTeamAgents(team: EnsembleTeam, request: CreateTeamRequest): 
   }
 }
 
-export function getEnsembleTeam(teamId: string): ServiceResult<{ team: EnsembleTeam; messages: EnsembleMessage[] }> {
+export function getAgentForgeTeam(teamId: string): ServiceResult<{ team: AgentForgeTeam; messages: AgentForgeMessage[] }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
   return { data: { team, messages: getMessages(teamId) }, status: 200 }
 }
 
-export function listEnsembleTeams(): ServiceResult<{ teams: EnsembleTeam[] }> {
+export function listAgentForgeTeams(): ServiceResult<{ teams: AgentForgeTeam[] }> {
   return { data: { teams: loadTeams() }, status: 200 }
 }
 
 export async function checkIdleTeams(): Promise<void> {
-  await ensembleService.checkIdleTeams()
+  await agentForgeService.checkIdleTeams()
 }
 
-export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ messages: EnsembleMessage[] }> {
+export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ messages: AgentForgeMessage[] }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
   return { data: { messages: getMessages(teamId, since) }, status: 200 }
@@ -941,19 +941,19 @@ export function detectPlan(content: string, messageId: string): TeamPlan | null 
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
   existingId?: string, existingTimestamp?: string, messageType?: string,
-): Promise<ServiceResult<{ message: EnsembleMessage }>> {
+): Promise<ServiceResult<{ message: AgentForgeMessage }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
-  const message: EnsembleMessage = {
+  const message: AgentForgeMessage = {
     id: existingId || uuidv4(), teamId, from: from || 'user', to, content,
-    type: (messageType as EnsembleMessage['type']) || 'chat', timestamp: existingTimestamp || new Date().toISOString(),
+    type: (messageType as AgentForgeMessage['type']) || 'chat', timestamp: existingTimestamp || new Date().toISOString(),
   }
   appendMessage(teamId, message)
 
-  // Detect plan in non-ensemble messages
+  // Detect plan in non-agent-forge messages
   const sender = from || 'user'
-  if (sender !== 'ensemble') {
+  if (sender !== 'agent-forge') {
     const detectedPlan = detectPlan(content, message.id)
     if (detectedPlan) {
       const existingPlan = team.plan
@@ -975,7 +975,7 @@ export async function sendTeamMessage(
   }
 
   // Detect agent completion signal ("Done." from team_done MCP tool)
-  if (sender !== 'ensemble' && sender !== 'user' && /^done\b/i.test(content.trim())) {
+  if (sender !== 'agent-forge' && sender !== 'user' && /^done\b/i.test(content.trim())) {
     const agentIdx = team.agents.findIndex(a => a.name === sender ||
       sender.endsWith(a.name) || sender.endsWith(`-${a.name}`))
     if (agentIdx >= 0 && team.agents[agentIdx].status === 'active') {
@@ -988,7 +988,7 @@ export async function sendTeamMessage(
       if (activeAgents.length === 0) {
         console.log(`[Agent-Forge] All agents done — auto-disbanding team ${teamId}`)
         appendMessage(teamId, {
-          id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
           content: 'All agents signaled completion — disbanding team.',
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -1033,7 +1033,7 @@ export async function sendTeamMessage(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
         content: `❌ Delivery to ${targetAgent.name} failed: ${reason}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -1053,7 +1053,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
   if (!team) return
 
   const messages = getMessages(teamId)
-  const agentMsgs = messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
+  const agentMsgs = messages.filter(m => m.from !== 'agent-forge' && m.from !== 'user')
   if (agentMsgs.length === 0) return
 
   const now = new Date()
@@ -1075,7 +1075,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
   )
 
   const stripPaths = (s: string) =>
-    s.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
+    s.replace(/(?:\/tmp\/agent-forge|[A-Z]:\\[^"'\s]*\\Temp\\agent-forge)[-\w\\]*/gi, '').trim()
 
   const summaryText = agents.map(agent => {
     const msgs = agentMsgs.filter(m => m.from === agent)
@@ -1109,14 +1109,14 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
   console.log(`[Agent-Forge] Summary written to ${summaryFile}`)
 }
 
-export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual' | 'error' | 'auto'): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual' | 'error' | 'auto'): Promise<ServiceResult<{ team: AgentForgeTeam }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
   // Record disband reason
   const disbandReason = reason || 'manual'
   appendMessage(teamId, {
-    id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+    id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
     content: `Team disbanded (reason: ${disbandReason})`,
     type: 'chat', timestamp: new Date().toISOString(),
   })
@@ -1138,7 +1138,7 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
   for (const agent of team.agents) {
     if (agent.status === 'active') {
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
         content: `${agent.name} has left #${team.name}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -1173,7 +1173,7 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
       const result = await mergeWorktree(worktreeInfo, basePath)
 
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
         content: result.success
           ? `🌳 Merged ${agent.name}'s worktree (${agent.worktreeBranch})`
           : `⚠️ Merge conflict for ${agent.name}: ${result.conflicts?.join(', ')}`,
@@ -1214,7 +1214,7 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
   // Optional: save session summary to claude-mem
   try {
     const messages = getMessages(teamId)
-    const agentMessages = messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
+    const agentMessages = messages.filter(m => m.from !== 'agent-forge' && m.from !== 'user')
     if (agentMessages.length > 0) {
       const durationMs = updated!.completedAt && team.createdAt
         ? new Date(updated!.completedAt).getTime() - new Date(team.createdAt).getTime()
@@ -1246,7 +1246,7 @@ export async function disbandTeam(teamId: string, reason?: 'completed' | 'manual
       const cwdMatch = team.description.match(/workingDirectory[:\s]*([^\s,}]+)/)
       const project = process.env.AGENT_FORGE_PROJECT
         || (cwdMatch ? cwdMatch[1].split('/').pop() : undefined)
-        || 'ensemble'
+        || 'agent-forge'
 
       fetch('http://localhost:37777/api/observations', {
         method: 'POST',
@@ -1281,7 +1281,7 @@ async function generateAutoSummary(teamId: string): Promise<void> {
   if (!team) return
 
   const allMessages = getMessages(teamId)
-  const agentMessages = allMessages.filter(m => m.from !== 'ensemble')
+  const agentMessages = allMessages.filter(m => m.from !== 'agent-forge')
   if (agentMessages.length < 3) return // not enough content to summarize
 
   const durationMs = team.completedAt
@@ -1357,7 +1357,7 @@ async function generateAutoSummary(teamId: string): Promise<void> {
  * Reopen a disbanded/completed/failed team — re-spawn agents with conversation context.
  * The existing messages are preserved; agents get a catch-up summary.
  */
-export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: AgentForgeTeam }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
@@ -1382,7 +1382,7 @@ export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: 
   })
 
   appendMessage(teamId, {
-    id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+    id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
     content: 'Team reopened — re-spawning agents with conversation context.',
     type: 'chat', timestamp: new Date().toISOString(),
   })
@@ -1390,7 +1390,7 @@ export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: 
   // Build catch-up context from previous messages
   const previousMessages = getMessages(teamId)
   const agentMessages = previousMessages
-    .filter(m => m.from !== 'ensemble')
+    .filter(m => m.from !== 'agent-forge')
     .slice(-20)
   const contextSummary = agentMessages
     .map(m => `${m.from}: ${m.content.slice(0, 300)}`)
@@ -1421,7 +1421,7 @@ export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: 
         team.agents[i].status = 'active'
 
         appendMessage(teamId, {
-          id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
           content: `${agentSpec.name} has rejoined the team`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -1429,7 +1429,7 @@ export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: 
         const message = err instanceof Error ? err.message : String(err)
         team.agents[i].status = 'failed'
         appendMessage(teamId, {
-          id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+          id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
           content: `Failed to re-spawn ${agentSpec.name}: ${message}`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -1488,7 +1488,7 @@ export async function reopenTeam(teamId: string): Promise<ServiceResult<{ team: 
     }
 
     appendMessage(teamId, {
-      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
       content: `🔄 Team reopened — ${activeAgents.length} agents resumed with conversation context.`,
       type: 'chat', timestamp: new Date().toISOString(),
     })
@@ -1524,7 +1524,7 @@ export function deleteTeamPermanently(teamId: string): ServiceResult<{ deleted: 
 export async function cloneTeam(
   sourceTeamId: string,
   options: { seedMessages?: boolean; workingDirectory?: string } = {},
-): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+): Promise<ServiceResult<{ team: AgentForgeTeam }>> {
   const source = getTeam(sourceTeamId)
   if (!source) return { error: 'Source team not found', status: 404 }
 
@@ -1542,7 +1542,7 @@ export async function cloneTeam(
   }
 
   // Create the new team (non-blocking — spawns in background)
-  const result = await createEnsembleTeam(request)
+  const result = await createAgentForgeTeam(request)
   if (result.error || !result.data) return result
 
   const newTeam = result.data.team
@@ -1551,7 +1551,7 @@ export async function cloneTeam(
   if (options.seedMessages) {
     const sourceMessages = getMessages(sourceTeamId)
     const agentMessages = sourceMessages
-      .filter(m => m.from !== 'ensemble')
+      .filter(m => m.from !== 'agent-forge')
       .slice(-15) // last 15 messages as context
 
     if (agentMessages.length > 0) {
@@ -1562,7 +1562,7 @@ export async function cloneTeam(
       appendMessage(newTeam.id, {
         id: uuidv4(),
         teamId: newTeam.id,
-        from: 'ensemble',
+        from: 'agent-forge',
         to: 'team',
         content: `Continuing from previous session (${source.name}):\n\n${contextSummary}`,
         type: 'chat',
@@ -1654,7 +1654,7 @@ export function joinTeam(
   appendMessage(teamId, {
     id: uuidv4(),
     teamId,
-    from: 'ensemble',
+    from: 'agent-forge',
     to: 'team',
     content: `${request.agent_name} joined the team (remote)`,
     type: 'chat',
@@ -1692,7 +1692,7 @@ export async function sendRemoteMessage(
   participantId: string,
   content: string,
   to?: string,
-): Promise<ServiceResult<{ message: EnsembleMessage }>> {
+): Promise<ServiceResult<{ message: AgentForgeMessage }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
@@ -1758,11 +1758,11 @@ export function updateTeamVisibility(
   visibility?: TeamVisibility,
   lifecycle?: SessionLifecycle,
   tags?: string[],
-): ServiceResult<{ team: EnsembleTeam; shareLink?: ShareLink }> {
+): ServiceResult<{ team: AgentForgeTeam; shareLink?: ShareLink }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
-  const updates: Partial<EnsembleTeam> = {}
+  const updates: Partial<AgentForgeTeam> = {}
 
   if (visibility && visibility !== team.visibility) {
     if (visibility === 'private') {
@@ -1785,7 +1785,7 @@ export function updateTeamVisibility(
     updates.visibility = visibility
 
     appendMessage(teamId, {
-      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
       content: `Team visibility changed to ${visibility}`,
       type: 'chat', timestamp: new Date().toISOString(),
     })
@@ -1921,7 +1921,7 @@ export function exportTeam(
 
   const allMessages = getMessages(teamId)
   const agentMessages = allMessages
-    .filter(m => m.from !== 'ensemble')
+    .filter(m => m.from !== 'agent-forge')
     .slice(-50)
 
   // Extract plan steps if available
@@ -2117,7 +2117,7 @@ export function exportTeam(
 export async function executeTeam(
   sourceTeamId: string,
   options: { agents: Array<{ program: string; role?: string }>; workingDirectory?: string } = { agents: [] },
-): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+): Promise<ServiceResult<{ team: AgentForgeTeam }>> {
   // Build the prompt from the source team's output
   const exportResult = exportTeam(sourceTeamId, 'prompt')
   if (exportResult.error || !exportResult.data?.prompt) {
@@ -2146,14 +2146,14 @@ export async function executeTeam(
     workingDirectory: options.workingDirectory || undefined,
   }
 
-  const result = await createEnsembleTeam(request)
+  const result = await createAgentForgeTeam(request)
   if (result.error || !result.data) return result
 
   // Seed the new team with a reference to the source
   appendMessage(result.data.team.id, {
     id: uuidv4(),
     teamId: result.data.team.id,
-    from: 'ensemble',
+    from: 'agent-forge',
     to: 'team',
     content: `Executing plan from team "${source.name}" (${source.id}).`,
     type: 'chat',

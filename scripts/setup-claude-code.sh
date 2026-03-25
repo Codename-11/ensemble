@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup-claude-code.sh — Install ensemble as /collab skill in Claude Code
+# setup-claude-code.sh — Install agent-forge as /collab skill in Claude Code
 # Usage: ./scripts/setup-claude-code.sh
 set -euo pipefail
 
@@ -14,7 +14,7 @@ CHECK="${G}✓${R}"
 WARN='\033[93m⚠${R}'
 
 echo ""
-echo -e "  ${BD}${W}◈ ensemble — Claude Code setup${R}"
+echo -e "  ${BD}${W}◈ agent-forge — Claude Code setup${R}"
 echo -e "  ${D}Installing /collab skill${R}"
 echo ""
 
@@ -35,7 +35,7 @@ SCRIPTS=(
   "Bash(${REPO_DIR}/scripts/collab-status.sh:*)"
   "Bash(${REPO_DIR}/scripts/collab-cleanup.sh:*)"
   "Bash(${REPO_DIR}/scripts/collab-replay.sh:*)"
-  "Bash(${REPO_DIR}/scripts/ensemble-bridge.sh:*)"
+  "Bash(${REPO_DIR}/scripts/agent-forge-bridge.sh:*)"
 )
 
 ADDED=0

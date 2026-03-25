@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Rocket, Plus, X, Loader2, FolderOpen, ChevronDown, ChevronRight, Crown, ArrowUp, Settings, Folder } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { CollabTemplateSummary, EnsembleServerInfo, ProjectDirectory, TeamConfig } from '../types'
+import type { CollabTemplateSummary, AgentForgeServerInfo, ProjectDirectory, TeamConfig } from '../types'
 
 interface AgentInfo {
   id: string
@@ -70,7 +70,7 @@ export function LaunchForm({ onLaunch, onCancel }: LaunchFormProps) {
   useEffect(() => {
     fetch('/api/agent-forge/info')
       .then(r => r.json())
-      .then((data: EnsembleServerInfo) => {
+      .then((data: AgentForgeServerInfo) => {
         if (data.cwd) setServerCwd(data.cwd)
         if (data.agents?.length) setAvailableAgents(data.agents)
         if (data.recentDirectories?.length) setRecentDirs(data.recentDirectories)

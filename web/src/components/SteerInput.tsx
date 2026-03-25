@@ -1,13 +1,13 @@
 import { useState, useCallback } from 'react'
 import { Send, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeamAgent } from '../types'
+import type { AgentForgeTeamAgent } from '../types'
 
 type SendState = 'idle' | 'sending' | 'sent' | 'error'
 
 interface SteerInputProps {
   teamId?: string
-  agents?: EnsembleTeamAgent[]
+  agents?: AgentForgeTeamAgent[]
   onSend: (content: string, to?: string) => Promise<void>
   disabled?: boolean
   placeholder?: string

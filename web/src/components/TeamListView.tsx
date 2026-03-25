@@ -12,7 +12,7 @@ import {
   Share2,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, EnsembleTeamAgent } from '../types'
+import type { AgentForgeTeam, AgentForgeTeamAgent } from '../types'
 import { navigate } from '../hooks/useRouter'
 import { LaunchForm } from './LaunchForm'
 
@@ -32,7 +32,7 @@ function timeAgo(isoString: string): string {
   return `${Math.floor(hours / 24)}d ago`
 }
 
-function agentColor(agent: EnsembleTeamAgent): string {
+function agentColor(agent: AgentForgeTeamAgent): string {
   const prog = agent.program.toLowerCase()
   if (prog.includes('codex')) return 'var(--agent-codex)'
   if (prog.includes('claude')) return 'var(--agent-claude)'
@@ -42,7 +42,7 @@ function agentColor(agent: EnsembleTeamAgent): string {
 }
 
 export function TeamListView({ onServerStatus }: TeamListViewProps) {
-  const [teams, setTeams] = useState<EnsembleTeam[]>([])
+  const [teams, setTeams] = useState<AgentForgeTeam[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showLaunchForm, setShowLaunchForm] = useState(false)
@@ -51,8 +51,8 @@ export function TeamListView({ onServerStatus }: TeamListViewProps) {
   // Listen for "new team" event from sidebar
   useEffect(() => {
     const handler = () => setShowLaunchForm(true)
-    window.addEventListener('ensemble:new-team', handler)
-    return () => window.removeEventListener('ensemble:new-team', handler)
+    window.addEventListener('agent-forge:new-team', handler)
+    return () => window.removeEventListener('agent-forge:new-team', handler)
   }, [])
 
   const fetchTeams = useCallback(async () => {
@@ -104,7 +104,7 @@ export function TeamListView({ onServerStatus }: TeamListViewProps) {
     } catch { /* ignore */ }
   }
 
-  const handleShare = async (team: EnsembleTeam) => {
+  const handleShare = async (team: AgentForgeTeam) => {
     const shareUrl = `${window.location.origin}/team/${team.id}`
     try {
       await navigator.clipboard.writeText(shareUrl)

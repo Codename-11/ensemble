@@ -20,7 +20,7 @@ CHECK="${G}✓${R}"
 SPIN="${C}●${R}"
 
 echo ""
-echo -e "  ${BD}${W}◈ ensemble collab${R}"
+echo -e "  ${BD}${W}◈ agent-forge collab${R}"
 echo -e "  ${D}${TASK:0:80}${R}"
 echo ""
 
@@ -84,7 +84,7 @@ printf '%s\n' "$TEAM_ID" > /tmp/collab-team-id.txt
 echo -e "  ${CHECK} Team created ${D}(${TEAM_NAME})${R}"
 
 # ─── 3. Bridge (writes its own PID file via single-instance guard) ───
-nohup "$SCRIPT_DIR/ensemble-bridge.sh" "$TEAM_ID" "$API" >> "$BRIDGE_LOG_FILE" 2>&1 &
+nohup "$SCRIPT_DIR/agent-forge-bridge.sh" "$TEAM_ID" "$API" >> "$BRIDGE_LOG_FILE" 2>&1 &
 echo -e "  ${CHECK} Bridge started"
 
 # ─── 4. Monitor ───
@@ -94,7 +94,7 @@ if [ -n "${TMUX:-}" ]; then
   echo -e "  ${CHECK} Monitor opened ${D}(right panel)${R}"
   MONITOR_MODE="split"
 else
-  MONITOR_SESSION="ensemble-$TEAM_ID"
+  MONITOR_SESSION="agent-forge-$TEAM_ID"
   tmux kill-session -t "$MONITOR_SESSION" 2>/dev/null || true
   tmux new-session -d -s "$MONITOR_SESSION" -c "$REPO_DIR" \
     "./node_modules/.bin/tsx cli/monitor.ts $TEAM_ID"

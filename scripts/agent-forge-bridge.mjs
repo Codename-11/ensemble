@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * ensemble-bridge.mjs — Cross-platform message bridge
- * Replaces ensemble-bridge.sh (which depends on bash/Python).
+ * agent-forge-bridge.mjs — Cross-platform message bridge
+ * Replaces agent-forge-bridge.sh (which depends on bash/Python).
  *
  * Watches messages.jsonl and posts new entries to the Agent-Forge API.
- * Usage: node ensemble-bridge.mjs <team-id> [api-url]
+ * Usage: node agent-forge-bridge.mjs <team-id> [api-url]
  */
 
 import fs from 'fs'
@@ -16,7 +16,7 @@ const [,, teamId, apiUrl] = process.argv
 const API = apiUrl || 'http://localhost:23000'
 
 if (!teamId) {
-  console.error('Usage: node ensemble-bridge.mjs <team-id> [api-url]')
+  console.error('Usage: node agent-forge-bridge.mjs <team-id> [api-url]')
   process.exit(1)
 }
 

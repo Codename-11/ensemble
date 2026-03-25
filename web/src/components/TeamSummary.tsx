@@ -15,12 +15,12 @@ import {
   Zap,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, EnsembleMessage } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage } from '../types'
 import { AgentBadge } from './AgentBadge'
 
 interface TeamSummaryProps {
-  team: EnsembleTeam
-  messages: EnsembleMessage[]
+  team: AgentForgeTeam
+  messages: AgentForgeMessage[]
   onNavigateToTeam?: (teamId: string) => void
 }
 

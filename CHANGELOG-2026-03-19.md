@@ -1,6 +1,6 @@
 # Agent-Forge — Changelog 19 maart 2026
 
-> **2026-03-23:** Project renamed from Ensemble → Agent-Forge. Package, README, UI, and docs rebranded. API paths migrated to `/api/agent-forge/`, env vars migrated to `AGENT_FORGE_*`, data dirs migrated to `~/.agent-forge/` and `/tmp/agent-forge/`.
+> **2026-03-23:** Project renamed from AgentForge → Agent-Forge. Package, README, UI, and docs rebranded. API paths migrated to `/api/agent-forge/`, env vars migrated to `AGENT_FORGE_*`, data dirs migrated to `~/.agent-forge/` and `/tmp/agent-forge/`.
 
 
 
@@ -8,7 +8,7 @@
 
 ## Samenvatting
 
-Grote infrastructuur-overhaul van het ensemble multi-agent collaboration systeem. Gedreven door competitieve analyse (oh-my-claudecode 10k stars, overstory 1k stars, myclaude 2.5k stars) en uitgevoerd via een autonome self-improvement loop: elke 8 minuten lanceerde een codex+claude team de volgende verbetering.
+Grote infrastructuur-overhaul van het agent-forge multi-agent collaboration systeem. Gedreven door competitieve analyse (oh-my-claudecode 10k stars, overstory 1k stars, myclaude 2.5k stars) en uitgevoerd via een autonome self-improvement loop: elke 8 minuten lanceerde een codex+claude team de volgende verbetering.
 
 ---
 
@@ -18,10 +18,10 @@ Grote infrastructuur-overhaul van het ensemble multi-agent collaboration systeem
 
 **Probleem**: Alle tmp-bestanden lagen los in `/tmp/` met hardcoded namen. Twee collabs tegelijk → file conflicts.
 
-**Oplossing**: Alle runtime files nu onder `/tmp/ensemble/<teamId>/`:
+**Oplossing**: Alle runtime files nu onder `/tmp/agent-forge/<teamId>/`:
 
 ```
-/tmp/ensemble/<teamId>/
+/tmp/agent-forge/<teamId>/
   messages.jsonl      # agent berichten
   summary.txt         # disband samenvatting
   bridge.pid/log      # bridge process
@@ -38,14 +38,14 @@ Grote infrastructuur-overhaul van het ensemble multi-agent collaboration systeem
 ```bash
 # Pad functies werken correct
 node -e "import('./lib/collab-paths.ts').then(m => console.log(m.collabRuntimeDir('test-123')))"
-# → /tmp/ensemble/test-123
+# → /tmp/agent-forge/test-123
 ```
 
 ### A2. Bridge Hardening
 
 **Probleem**: Bridge had geen health check, geen retry, geen single-instance guard. Bij API down liep hij eindeloos.
 
-**Oplossing** (`scripts/ensemble-bridge.sh`):
+**Oplossing** (`scripts/agent-forge-bridge.sh`):
 - **Single-instance guard**: PID file + `kill -0` check. Tweede bridge voor zelfde team → exit.
 - **Health check**: Bij start curl naar `/api/v1/health`. Geen response → exit.
 - **Exponential backoff**: 10 retries per bericht, 0.5s→30s delay.
@@ -55,8 +55,8 @@ node -e "import('./lib/collab-paths.ts').then(m => console.log(m.collabRuntimeDi
 **Testen**:
 ```bash
 # Start bridge voor een team, probeer tweede → "Already running"
-scripts/ensemble-bridge.sh test-id http://localhost:23000 &
-scripts/ensemble-bridge.sh test-id http://localhost:23000
+scripts/agent-forge-bridge.sh test-id http://localhost:23000 &
+scripts/agent-forge-bridge.sh test-id http://localhost:23000
 # → [bridge] Already running for test-id (pid XXXXX)
 ```
 
@@ -73,8 +73,8 @@ for i in $(seq 1 10); do
   /usr/local/bin/team-say test-atomic agent-$i team "message $i" &
 done
 wait
-wc -l /tmp/ensemble/test-atomic/messages.jsonl  # → 10
-python3 -c "import json; [json.loads(l) for l in open('/tmp/ensemble/test-atomic/messages.jsonl')]"  # geen errors
+wc -l /tmp/agent-forge/test-atomic/messages.jsonl  # → 10
+python3 -c "import json; [json.loads(l) for l in open('/tmp/agent-forge/test-atomic/messages.jsonl')]"  # geen errors
 ```
 
 ### A4. Auto-Accept Permissions
@@ -113,7 +113,7 @@ Bij team disband wordt automatisch een samenvatting naar Telegram gestuurd.
 ```bash
 # Handmatige test
 curl -s "https://api.telegram.org/bot***REDACTED***/sendMessage" \
-  -d "chat_id=***REDACTED***" -d "text=Test ensemble notification"
+  -d "chat_id=***REDACTED***" -d "text=Test agent-forge notification"
 ```
 
 Na een echte collab: check je Telegram → samenvatting met team naam, duur, messages, per-agent info.
@@ -142,7 +142,7 @@ Bij disband wordt de token usage per agent gescrapet uit hun tmux pane.
 **Testen**:
 ```bash
 # Na een collab, check de summary:
-cat /tmp/ensemble/<teamId>/summary.txt
+cat /tmp/agent-forge/<teamId>/summary.txt
 # → Bevat token usage per agent
 
 # Check Telegram bericht → bevat ook tokens
@@ -167,7 +167,7 @@ curl -X POST http://localhost:23000/api/agent-forge/teams \
   -d '{"name":"test","description":"Review my code","templateName":"review","agents":[{"program":"codex","role":"lead"},{"program":"claude code","role":"worker"}]}'
 
 # Unit tests
-npx vitest run tests/ensemble.test.ts -t "template"
+npx vitest run tests/agent-forge.test.ts -t "template"
 ```
 
 ### B5. Git Worktree Isolation (Round 5)
@@ -175,8 +175,8 @@ npx vitest run tests/ensemble.test.ts -t "template"
 Elke agent krijgt een eigen git worktree + branch. Voorkomt file conflicts bij parallel schrijven.
 
 **Flow**:
-1. `createEnsembleTeam()` met `useWorktrees: true`
-2. Per local agent: `git worktree add /tmp/ensemble/<teamId>/worktrees/<agent> -b collab/<teamId>/<agent>`
+1. `createAgentForgeTeam()` met `useWorktrees: true`
+2. Per local agent: `git worktree add /tmp/agent-forge/<teamId>/worktrees/<agent> -b collab/<teamId>/<agent>`
 3. Agent werkt in eigen directory
 4. Bij disband: merge branches terug → cleanup worktrees → kill sessions
 
@@ -185,7 +185,7 @@ Elke agent krijgt een eigen git worktree + branch. Voorkomt file conflicts bij p
 **Testen**:
 ```bash
 # Unit tests
-npx vitest run tests/ensemble.test.ts -t "worktree"
+npx vitest run tests/agent-forge.test.ts -t "worktree"
 
 # Handmatig: na collab met useWorktrees=true
 git worktree list  # → toont agent worktrees
@@ -212,7 +212,7 @@ curl -X POST http://localhost:23000/api/agent-forge/teams \
 
 # Unit tests
 npx vitest run tests/staged-workflow.test.ts
-npx vitest run tests/ensemble.test.ts -t "staged"
+npx vitest run tests/agent-forge.test.ts -t "staged"
 ```
 
 ### B7. Session Replay (Round 7)
@@ -254,8 +254,8 @@ Monitort actieve agents en grijpt in bij stilte.
 5. **Cleanup**: Bij team disband → state verwijderd
 
 **Configuratie** (env vars):
-- `ENSEMBLE_WATCHDOG_NUDGE_MS` (default: 90000)
-- `ENSEMBLE_WATCHDOG_STALL_MS` (default: 180000)
+- `AGENT_FORGE_WATCHDOG_NUDGE_MS` (default: 90000)
+- `AGENT_FORGE_WATCHDOG_STALL_MS` (default: 180000)
 
 **Testen**:
 ```bash
@@ -302,18 +302,18 @@ Speelt sessie af met echte timing, ANSI kleuren, timestamps.
 
 ```bash
 # Alle tests draaien
-cd ~/Documents/ensemble && npx vitest run
+cd ~/Documents/agent-forge && npx vitest run
 
 # Per test file
-npx vitest run tests/ensemble.test.ts      # 50 tests
+npx vitest run tests/agent-forge.test.ts      # 50 tests
 npx vitest run tests/staged-workflow.test.ts # 1 test
 npx vitest run tests/agent-watchdog.test.ts  # 5 tests
 
 # Specifieke test groep
-npx vitest run tests/ensemble.test.ts -t "template"
-npx vitest run tests/ensemble.test.ts -t "worktree"
-npx vitest run tests/ensemble.test.ts -t "staged"
-npx vitest run tests/ensemble.test.ts -t "shouldAutoDisband"
+npx vitest run tests/agent-forge.test.ts -t "template"
+npx vitest run tests/agent-forge.test.ts -t "worktree"
+npx vitest run tests/agent-forge.test.ts -t "staged"
+npx vitest run tests/agent-forge.test.ts -t "shouldAutoDisband"
 
 # TypeScript check
 npx tsc --noEmit
@@ -329,16 +329,16 @@ De beste manier om alles te testen is een echte collab draaien:
 
 ```bash
 # 1. Start de server
-cd ~/Documents/ensemble && npx tsx server.ts
+cd ~/Documents/agent-forge && npx tsx server.ts
 
 # 2. In een andere terminal: start een collab
 scripts/collab-launch.sh "$(pwd)" "Test alle nieuwe features"
 
 # 3. Observeer in de monitor
-tmux attach -t ensemble-<teamId>
+tmux attach -t agent-forge-<teamId>
 
 # 4. Na afloop: check Telegram (notificatie ontvangen?)
-# 5. Check summary: cat /tmp/ensemble/<teamId>/summary.txt (token usage?)
+# 5. Check summary: cat /tmp/agent-forge/<teamId>/summary.txt (token usage?)
 # 6. Replay: bash scripts/collab-replay.sh <teamId> --speed 0
 # 7. Status: bash scripts/collab-status.sh --once
 # 8. Cleanup: bash scripts/collab-cleanup.sh
@@ -349,7 +349,7 @@ tmux attach -t ensemble-<teamId>
 ## F. Architectuur Overzicht
 
 ```
-ensemble/
+agent-forge/
 ├── server.ts                    # HTTP server (port 23000)
 ├── agents.json                  # Agent program definitions
 ├── collab-templates.json        # Collab presets (review/implement/research/debug)
@@ -359,11 +359,11 @@ ensemble/
 │   ├── agent-watchdog.ts        # Stall detection + auto-nudge
 │   ├── staged-workflow.ts       # Plan→Exec→Verify phases
 │   ├── worktree-manager.ts      # Git worktree create/merge/destroy
-│   ├── ensemble-registry.ts    # Team/message persistence
+│   ├── agent-forge-registry.ts    # Team/message persistence
 │   ├── agent-runtime.ts         # tmux abstraction
 │   └── agent-config.ts          # agents.json loader
 ├── services/
-│   └── ensemble-service.ts     # Core orchestration logic
+│   └── agent-forge-service.ts     # Core orchestration logic
 ├── scripts/
 │   ├── collab-paths.sh          # Shared path resolver (shell)
 │   ├── collab-launch.sh         # All-in-one team launcher
@@ -371,13 +371,13 @@ ensemble/
 │   ├── collab-replay.sh         # Session replay
 │   ├── collab-status.sh         # Dashboard
 │   ├── collab-cleanup.sh        # Prune old dirs
-│   ├── ensemble-bridge.sh      # JSONL→API bridge
+│   ├── agent-forge-bridge.sh      # JSONL→API bridge
 │   ├── team-say.sh              # Atomic message write
 │   └── team-read.sh             # Read team feed
 ├── types/
-│   └── ensemble.ts             # TypeScript types
+│   └── agent-forge.ts             # TypeScript types
 └── tests/
-    ├── ensemble.test.ts        # 50 tests
+    ├── agent-forge.test.ts        # 50 tests
     ├── staged-workflow.test.ts  # 1 test
     └── agent-watchdog.test.ts   # 5 tests
 ```

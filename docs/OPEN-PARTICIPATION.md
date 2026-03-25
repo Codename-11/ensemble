@@ -18,7 +18,7 @@ The Open Participation Model extends Agent-Forge from a local-only agent orchest
 
 ## 1. Type Changes
 
-### `types/ensemble.ts` — Additions
+### `types/agent-forge.ts` — Additions
 
 ```typescript
 // ── Visibility & Lifecycle ──────────────────────────────────
@@ -92,7 +92,7 @@ export interface JoinTeamResponse {
     id: string
     name: string
     description: string
-    status: EnsembleTeam['status']
+    status: AgentForgeTeam['status']
     visibility: TeamVisibility
     lifecycle: SessionLifecycle
     agent_count: number
@@ -107,7 +107,7 @@ export interface LobbyTeam {
   id: string
   name: string
   description: string
-  status: EnsembleTeam['status']
+  status: AgentForgeTeam['status']
   agentCount: number
   participantCount: number
   spectatorCount: number
@@ -130,10 +130,10 @@ export interface ShareLink {
 }
 ```
 
-### `types/ensemble.ts` — Modifications to Existing Types
+### `types/agent-forge.ts` — Modifications to Existing Types
 
 ```typescript
-export interface EnsembleTeam {
+export interface AgentForgeTeam {
   // ... all existing fields unchanged ...
 
   /** Team visibility mode. Default: 'private'. */
@@ -150,7 +150,7 @@ export interface EnsembleTeam {
   tags?: string[]
 }
 
-export interface EnsembleTeamAgent {
+export interface AgentForgeTeamAgent {
   // ... all existing fields unchanged ...
 
   /** Participant origin. Default: 'local' for spawned agents. */
@@ -168,7 +168,7 @@ export interface CreateTeamRequest {
   tags?: string[]
 }
 
-export interface EnsembleMessage {
+export interface AgentForgeMessage {
   // ... all existing fields unchanged ...
 
   /** Participant ID of the sender (set for remote participants). */
@@ -189,8 +189,8 @@ export interface LobbyState {
 
 export interface SpectatorState {
   teamId: string
-  team: EnsembleTeam | null
-  messages: EnsembleMessage[]
+  team: AgentForgeTeam | null
+  messages: AgentForgeMessage[]
   connected: boolean
   /** Whether the user has upgraded from spectator to human participant. */
   joinedAsHuman: boolean
@@ -483,22 +483,22 @@ Add these routes to the existing `http.createServer` handler, after the current 
 // (extend existing teamMatch handler for PATCH method)
 
 // POST /api/agent-forge/teams/:id/share — generate share link
-const shareMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/share$/)
+const shareMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/share$/)
 
 // POST /api/agent-forge/teams/:id/join — register remote participant
-const joinMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/join$/)
+const joinMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/join$/)
 
 // POST /api/agent-forge/teams/:id/messages — remote participant message
-const remoteMessageMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/messages$/)
+const remoteMessageMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/messages$/)
 
 // POST /api/agent-forge/teams/:id/leave — remote participant leave
-const leaveMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/leave$/)
+const leaveMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/leave$/)
 
 // DELETE /api/agent-forge/teams/:id/participants/:pid — kick participant
-const kickMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/participants\/([^/]+)$/)
+const kickMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/participants\/([^/]+)$/)
 
 // GET /api/agent-forge/teams/:id/spectate — spectator SSE stream
-const spectateMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/spectate$/)
+const spectateMatch = path.match(/^\/api\/agent-forge\/teams\/([^/]+)\/spectate$/)
 
 // GET /api/agent-forge/lobby — public team listing
 if (path === '/api/agent-forge/lobby' && method === 'GET') { ... }
@@ -580,7 +580,7 @@ function buildCorsHeaders(origin?: string, isPublicEndpoint?: boolean): Record<s
 
 ---
 
-## 4. Service Changes (`services/ensemble-service.ts`)
+## 4. Service Changes (`services/agent-forge-service.ts`)
 
 ### New Exports
 
@@ -608,7 +608,7 @@ export function sendRemoteMessage(
   participantId: string,
   content: string,
   to?: string,
-): ServiceResult<{ message: EnsembleMessage }>
+): ServiceResult<{ message: AgentForgeMessage }>
 
 // ── Visibility ───────────────────────────────────────────────
 
@@ -617,7 +617,7 @@ export function updateTeamVisibility(
   visibility?: TeamVisibility,
   lifecycle?: SessionLifecycle,
   tags?: string[],
-): ServiceResult<{ team: EnsembleTeam; shareLink?: ShareLink }>
+): ServiceResult<{ team: AgentForgeTeam; shareLink?: ShareLink }>
 
 export function generateShareLink(
   teamId: string,
@@ -696,7 +696,7 @@ export function joinTeam(
   appendMessage(teamId, {
     id: uuidv4(),
     teamId,
-    from: 'ensemble',
+    from: 'agent-forge',
     to: 'team',
     content: `${request.agent_name} joined the team (remote)`,
     type: 'chat',
@@ -738,7 +738,7 @@ export async function sendRemoteMessage(
   participantId: string,
   content: string,
   to?: string,
-): ServiceResult<{ message: EnsembleMessage }> {
+): ServiceResult<{ message: AgentForgeMessage }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
@@ -778,11 +778,11 @@ export function updateTeamVisibility(
   visibility?: TeamVisibility,
   lifecycle?: SessionLifecycle,
   tags?: string[],
-): ServiceResult<{ team: EnsembleTeam; shareLink?: ShareLink }> {
+): ServiceResult<{ team: AgentForgeTeam; shareLink?: ShareLink }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
 
-  const updates: Partial<EnsembleTeam> = {}
+  const updates: Partial<AgentForgeTeam> = {}
 
   if (visibility && visibility !== team.visibility) {
     // Validate transition
@@ -803,7 +803,7 @@ export function updateTeamVisibility(
     updates.visibility = visibility
 
     appendMessage(teamId, {
-      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      id: uuidv4(), teamId, from: 'agent-forge', to: 'team',
       content: `Team visibility changed to ${visibility}`,
       type: 'chat', timestamp: new Date().toISOString(),
     })
@@ -835,14 +835,14 @@ export function updateTeamVisibility(
 
 When `lifecycle === 'persistent'`:
 
-1. The `shouldAutoDisband` check in `EnsembleService.checkIdleTeams` **skips** persistent teams unless the team creator explicitly disbands.
+1. The `shouldAutoDisband` check in `AgentForgeService.checkIdleTeams` **skips** persistent teams unless the team creator explicitly disbands.
 2. When an agent signals `team_done`, it's marked `done` but the team stays `active`.
 3. Persistent teams can be reopened without full re-spawn — agents that are still alive keep working.
 4. The team only transitions to `disbanded` via explicit `DELETE` / disband call.
 
 Add to `shouldAutoDisband`:
 ```typescript
-private shouldAutoDisband(team: EnsembleTeam): boolean {
+private shouldAutoDisband(team: AgentForgeTeam): boolean {
   // Persistent teams never auto-disband
   if (team.lifecycle === 'persistent') return false
   // ... existing logic ...
@@ -976,7 +976,7 @@ Embedded in the existing `TeamControls.tsx` or `ControlPanel.tsx`. Shows:
 - Participant list with kick buttons
 
 ```tsx
-export function VisibilityControls({ team }: { team: EnsembleTeam }) {
+export function VisibilityControls({ team }: { team: AgentForgeTeam }) {
   // PATCH /api/agent-forge/teams/:id to change visibility
   // POST /api/agent-forge/teams/:id/share to generate link
   // Show participant list
@@ -1011,7 +1011,7 @@ Reusable lobby component used by both `LandingPage` and a potential sidebar in t
 | `MessageFeed.tsx` | Add `participantId` indicator on messages from remote participants. Add read-only mode prop for spectator view. |
 | `TeamControls.tsx` | Add visibility toggle and share link button. |
 | `LaunchForm.tsx` | Add optional visibility and lifecycle fields to the create form. |
-| `useEnsemble.ts` | Add spectator mode: connect to `/spectate` instead of `/stream` when in read-only mode. Handle `join`/`leave` SSE events. |
+| `useAgentForge.ts` | Add spectator mode: connect to `/spectate` instead of `/stream` when in read-only mode. Handle `join`/`leave` SSE events. |
 | `ui-store.ts` | Add `spectatorMode` flag, `currentParticipant` state. |
 
 ### Client-Side Routing
@@ -1082,7 +1082,7 @@ Every new field has a safe default:
 
 ### Registry Compatibility
 
-The `ensemble-registry.ts` functions (`createTeam`, `getTeam`, `updateTeam`, `loadTeams`) operate on `teams.json` using spread-merge semantics. New fields are simply added to the JSON — no schema migration needed. The `loadTeams` function reads whatever fields are present and TypeScript's optional properties handle the rest.
+The `agent-forge-registry.ts` functions (`createTeam`, `getTeam`, `updateTeam`, `loadTeams`) operate on `teams.json` using spread-merge semantics. New fields are simply added to the JSON — no schema migration needed. The `loadTeams` function reads whatever fields are present and TypeScript's optional properties handle the rest.
 
 ### Backward-compatible API
 

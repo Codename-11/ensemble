@@ -100,7 +100,7 @@ async function main() {
     log(`  ${CHECK} Server running`)
   } catch {
     process.stdout.write(`  ${SPIN} Starting server...`)
-    const serverLog = path.join(os.tmpdir(), 'ensemble-server.log')
+    const serverLog = path.join(os.tmpdir(), 'agent-forge-server.log')
     const tsxBin = path.join(REPO_DIR, 'node_modules', '.bin', 'tsx')
     const serverProc = spawn(tsxBin, ['server.ts'], {
       cwd: REPO_DIR,
@@ -166,7 +166,7 @@ async function main() {
   log(`  ${CHECK} Team created ${D}(${teamName})${R}`)
 
   // ─── 3. Bridge ───
-  const bridgeScript = path.join(SCRIPT_DIR, 'ensemble-bridge.mjs')
+  const bridgeScript = path.join(SCRIPT_DIR, 'agent-forge-bridge.mjs')
   const bridgeProc = spawn('node', [bridgeScript, teamId, API], {
     cwd: REPO_DIR,
     stdio: ['ignore', fs.openSync(bridgeLogFile, 'a'), fs.openSync(bridgeLogFile, 'a')],
@@ -215,7 +215,7 @@ async function main() {
     }
 
     if (monitorMode === 'none' && !isWindows) {
-      const monitorSession = `ensemble-${teamId}`
+      const monitorSession = `agent-forge-${teamId}`
       try {
         execSync(`tmux kill-session -t "${monitorSession}" 2>/dev/null || true`, { stdio: 'ignore' })
         execSync(
@@ -287,7 +287,7 @@ async function main() {
   } else {
     log(`  ${D}\u250C\u2500 Monitor \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510${R}`)
     if (monitorMode === 'tmux-session') {
-      log(`  ${D}\u2502${R}  ${D}tmux attach -t ensemble-${teamId}${R}      ${D}\u2502${R}`)
+      log(`  ${D}\u2502${R}  ${D}tmux attach -t agent-forge-${teamId}${R}      ${D}\u2502${R}`)
     }
   }
   log(`  ${D}\u2502${R}  ${W}s${R}     ${D}steer team${R}                     ${D}\u2502${R}`)

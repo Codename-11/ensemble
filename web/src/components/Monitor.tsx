@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useUIStore } from '../stores/ui-store'
-import type { EnsembleTeam, EnsembleMessage, EnsembleServerInfo } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage, AgentForgeServerInfo } from '../types'
 import { AgentBadge } from './AgentBadge'
 import { ControlPanel } from './ControlPanel'
 import { MessageFeed } from './MessageFeed'
@@ -33,8 +33,8 @@ import { StatsOverlay } from './StatsOverlay'
 import { useSounds, getMuted } from '../hooks/useSounds'
 
 interface MonitorProps {
-  team: EnsembleTeam
-  messages: EnsembleMessage[]
+  team: AgentForgeTeam
+  messages: AgentForgeMessage[]
   connected: boolean
   error: string | null
   onSend: (content: string, to?: string) => Promise<void>
@@ -73,7 +73,7 @@ function formatDuration(startIso: string, endIso?: string): string {
 }
 
 /** Find the most recent message from a given agent */
-function getLastMessagePreview(agentName: string, messages: EnsembleMessage[]): string | undefined {
+function getLastMessagePreview(agentName: string, messages: AgentForgeMessage[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
     if (m.from === agentName && m.content.trim()) {
@@ -128,7 +128,7 @@ export function Monitor({ team, messages, connected, error, onSend, onDisband, o
   useEffect(() => {
     fetch('/api/agent-forge/info')
       .then(r => r.json())
-      .then((data: EnsembleServerInfo) => {
+      .then((data: AgentForgeServerInfo) => {
         if (data.agents?.length) {
           setAvailablePrograms(data.agents.map(a => a.id))
         }
@@ -586,12 +586,12 @@ function ConnectionStatus({ connected, error, teamStatus }: {
 // ── Completion confirmation banner ───────────────────────────────
 
 function CompletionBanner({ messages, teamId, onDisband }: {
-  messages: EnsembleMessage[]
+  messages: AgentForgeMessage[]
   teamId: string
   onDisband: () => Promise<void>
 }) {
   const hasSuggestion = messages.some(m =>
-    m.from === 'ensemble' && m.type === 'decision' && m.content.includes('completion_suggested')
+    m.from === 'agent-forge' && m.type === 'decision' && m.content.includes('completion_suggested')
   )
   const [dismissed, setDismissed] = useState(false)
   const [disbanding, setDisbanding] = useState(false)
@@ -628,12 +628,12 @@ function CompletionBanner({ messages, teamId, onDisband }: {
 // ── Question banner (agents asking the user) ────────────────────
 
 function QuestionBanner({ messages, onSend }: {
-  messages: EnsembleMessage[]
+  messages: AgentForgeMessage[]
   onSend: (content: string, to?: string) => Promise<void>
 }) {
   // Find the latest unanswered question from an agent
   const questionMsg = [...messages].reverse().find(m =>
-    m.from !== 'ensemble' && m.from !== 'user' && m.type === 'question'
+    m.from !== 'agent-forge' && m.from !== 'user' && m.type === 'question'
   )
 
   const [answer, setAnswer] = useState('')
@@ -701,7 +701,7 @@ function QuickReference({ teamId }: { teamId: string }) {
   useEffect(() => {
     fetch('/api/agent-forge/info')
       .then(r => r.json())
-      .then((data: EnsembleServerInfo) => {
+      .then((data: AgentForgeServerInfo) => {
         if (data.mcpServerPath) setMcpServerPath(data.mcpServerPath)
       })
       .catch(() => {})

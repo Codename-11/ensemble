@@ -28,8 +28,8 @@ In the video I pointed them at a small Express API with some intentional securit
 
 **Setup:**
 ```bash
-git clone https://github.com/michelhelsdingen/ensemble.git
-cd ensemble && npm install
+git clone https://github.com/Codename-11/agent-forge.git
+cd agent-forge && npm install
 ./scripts/setup-claude-code.sh
 ```
 
@@ -37,5 +37,5 @@ It's open source (MIT), experimental, and definitely rough around the edges. Cur
 
 Would love to hear if anyone else has been thinking about this. Is multi-agent collaboration something you'd actually use, or is it just a cool demo? Genuinely curious.
 
-GitHub: https://github.com/michelhelsdingen/ensemble
-Docs: https://michelhelsdingen.github.io/ensemble/
+GitHub: https://github.com/Codename-11/agent-forge
+Docs: https://github.com/Codename-11/agent-forge/tree/main/docs

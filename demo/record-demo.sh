@@ -99,6 +99,6 @@ echo -e "  ${D}Cleaning up...${R}"
 RD="/tmp/agent-forge/$TEAM_ID"
 kill "$(cat "$RD/poller.pid" 2>/dev/null)" 2>/dev/null || true
 kill "$(cat "$RD/bridge.pid" 2>/dev/null)" 2>/dev/null || true
-tmux kill-session -t "ensemble-$TEAM_ID" 2>/dev/null || true
+tmux kill-session -t "agent-forge-$TEAM_ID" 2>/dev/null || true
 echo -e "  ${G}✓${R} Done"
 echo ""

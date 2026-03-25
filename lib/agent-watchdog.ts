@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import type { AgentRuntime } from './agent-runtime'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { AgentForgeMessage, AgentForgeTeam } from '../types/agent-forge'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
 const DEFAULT_NUDGE_MS = 180_000
@@ -16,9 +16,9 @@ interface AgentWatchdogState {
 }
 
 interface AgentWatchdogDeps {
-  loadTeams: () => EnsembleTeam[]
-  getMessages: (teamId: string) => EnsembleMessage[]
-  appendMessage: (teamId: string, message: EnsembleMessage) => void
+  loadTeams: () => AgentForgeTeam[]
+  getMessages: (teamId: string) => AgentForgeMessage[]
+  appendMessage: (teamId: string, message: AgentForgeMessage) => void
   getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'pasteFromFile'>
   resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys' }
   isSelf: (hostId?: string) => boolean
@@ -81,7 +81,7 @@ export class AgentWatchdog {
     this.state.clear()
   }
 
-  private async pollTeam(team: EnsembleTeam): Promise<void> {
+  private async pollTeam(team: AgentForgeTeam): Promise<void> {
     const messages = this.deps.getMessages(team.id)
     const activeAgents = team.agents.filter(candidate => candidate.status === 'active')
     const activeAgentNames = new Set(activeAgents.map(agent => agent.name))
@@ -128,7 +128,7 @@ export class AgentWatchdog {
           this.deps.appendMessage(team.id, {
             id: uuidv4(),
             teamId: team.id,
-            from: 'ensemble',
+            from: 'agent-forge',
             to: 'team',
             content: `❌ Watchdog failed to nudge ${agent.name}: ${reason}`,
             type: 'chat',
@@ -147,7 +147,7 @@ export class AgentWatchdog {
       this.deps.appendMessage(team.id, {
         id: uuidv4(),
         teamId: team.id,
-        from: 'ensemble',
+        from: 'agent-forge',
         to: 'team',
         content: `⚠️ Watchdog marked ${agent.name} as stalled after ${Math.round((nowMs - nudgedMs) / 1000)}s without progress after nudge`,
         type: 'chat',
@@ -160,12 +160,12 @@ export class AgentWatchdog {
     }
   }
 
-  private async nudgeAgent(team: EnsembleTeam, agentName: string, _program: string, hostId?: string): Promise<void> {
+  private async nudgeAgent(team: AgentForgeTeam, agentName: string, _program: string, hostId?: string): Promise<void> {
     const timestamp = new Date(this.now()).toISOString()
     this.deps.appendMessage(team.id, {
       id: uuidv4(),
       teamId: team.id,
-      from: 'ensemble',
+      from: 'agent-forge',
       to: 'team',
       content: `👀 Watchdog nudged ${agentName}: ${WATCHDOG_NUDGE_TEXT}`,
       type: 'chat',

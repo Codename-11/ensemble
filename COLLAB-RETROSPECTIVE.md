@@ -9,16 +9,16 @@
 Two collab teams were tasked with fixing 11 prioritized issues in the Agent-Forge codebase:
 - **Priority 1** (Correctness): teams.json locking, worktree merge race, zombie team marking, JSON 400 handling
 - **Priority 2** (Effectiveness): completion pattern false positives, staged-workflow cursor
-- **Priority 3** (Maintainability): shared Python parser, rate limiter cleanup, ensemble-bridge error handling, monitor buffer cap, failed status type
+- **Priority 3** (Maintainability): shared Python parser, rate limiter cleanup, agent-forge-bridge error handling, monitor buffer cap, failed status type
 
 ## Team 1 Results (6/11 issues)
 
 Team 1 successfully resolved 6 issues before being prematurely disbanded:
-1. Added `failed` status to `EnsembleTeam` and `EnsembleTeamAgent` types
+1. Added `failed` status to `AgentForgeTeam` and `AgentForgeTeamAgent` types
 2. Implemented incremental message fetching in Monitor using `since` timestamp cursor
 3. Created shared `scripts/parse-messages.py` and refactored 3 collab scripts (95 lines removed)
 4. Added periodic rate limiter cleanup (60s interval) to prevent unbounded Map growth
-5. Hardened `ensemble-bridge.sh` error handling (HTTP client vs server errors, exponential backoff)
+5. Hardened `agent-forge-bridge.sh` error handling (HTTP client vs server errors, exponential backoff)
 6. Added message buffer cap (1000 messages) to Monitor with automatic trimming
 
 ### What went wrong

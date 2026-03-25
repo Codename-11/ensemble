@@ -223,7 +223,7 @@ If you prefer to set things up manually:
 
 ```bash
 mkdir -p ~/.claude/skills/collab
-cp /path/to/ensemble/skill/SKILL.md ~/.claude/skills/collab/SKILL.md
+cp /path/to/agent-forge/skill/SKILL.md ~/.claude/skills/collab/SKILL.md
 ```
 
 **Step 2:** Add permissions to `~/.claude/settings.json`:
@@ -232,15 +232,15 @@ cp /path/to/ensemble/skill/SKILL.md ~/.claude/skills/collab/SKILL.md
 {
   "permissions": {
     "allow": [
-      "Bash(/path/to/ensemble/scripts/collab-launch.sh:*)",
-      "Bash(/path/to/ensemble/scripts/collab-poll.sh:*)",
-      "Bash(/path/to/ensemble/scripts/collab-status.sh:*)"
+      "Bash(/path/to/agent-forge/scripts/collab-launch.sh:*)",
+      "Bash(/path/to/agent-forge/scripts/collab-poll.sh:*)",
+      "Bash(/path/to/agent-forge/scripts/collab-status.sh:*)"
     ]
   }
 }
 ```
 
-Replace `/path/to/ensemble` with the actual path where you cloned the repo.
+Replace `/path/to/agent-forge` with the actual path where you cloned the repo.
 
 ### Use it
 

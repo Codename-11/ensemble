@@ -50,7 +50,7 @@
 | 4 | **Test coverage** | Zero tests for: `buildPermissionFlags`, remote spawn, `writeMcpConfig`, MCP tools, plan detection, `team_done`/`team_ask` flow. | ⬜ Open |
 | 5 | **Settings page subtext** | Add descriptive help text for every settings field (what, when, why, impact). | ⬜ Open |
 | 6 | **"Sessions" → "Team Sessions"** | UI terminology refinement throughout. | ⬜ Open |
-| 7 | **Ralph Loops / Iterative Agent Runner** | Native loop runner for long-running iterative tasks. Instead of a single agent session that degrades with context rot, Ensemble re-invokes agents with fresh context each iteration. The spec file (team description or SPEC.md) is the source of truth. Each iteration: agent reads spec → checks plan progress → does next chunk → signals iteration complete. Ensemble records what was done, updates plan step status, and re-invokes with clean context + progress summary. Exit condition: all plan steps done, or agent calls `team_done`, or max iterations reached.<br><br>**Key capabilities:**<br>- Fresh context per iteration (fights context rot in long sessions)<br>- Spec file as persistent source of truth across iterations<br>- Plan tab tracks progress across iterations automatically<br>- Configurable max iterations + iteration timeout<br>- Iteration history viewable in message feed<br>- Works with both local and remote agents<br>- Can run overnight autonomously with safeguards | ⬜ Open |
+| 7 | **Ralph Loops / Iterative Agent Runner** | Native loop runner for long-running iterative tasks. Instead of a single agent session that degrades with context rot, AgentForge re-invokes agents with fresh context each iteration. The spec file (team description or SPEC.md) is the source of truth. Each iteration: agent reads spec → checks plan progress → does next chunk → signals iteration complete. AgentForge records what was done, updates plan step status, and re-invokes with clean context + progress summary. Exit condition: all plan steps done, or agent calls `team_done`, or max iterations reached.<br><br>**Key capabilities:**<br>- Fresh context per iteration (fights context rot in long sessions)<br>- Spec file as persistent source of truth across iterations<br>- Plan tab tracks progress across iterations automatically<br>- Configurable max iterations + iteration timeout<br>- Iteration history viewable in message feed<br>- Works with both local and remote agents<br>- Can run overnight autonomously with safeguards | ⬜ Open |
 
 ## Known Issues / Technical Debt
 
@@ -58,7 +58,7 @@
 |---|-------|--------|
 | 1 | JSONL persistence without file locking — race conditions with multi-process | ⬜ Open |
 | 2 | `execAsync` with string interpolation — command injection risk in agent-runtime | ⬜ Open |
-| 3 | Code duplication — `apiGet`/`apiPost` in multiple files | ✅ Fixed (EnsembleClient) |
+| 3 | Code duplication — `apiGet`/`apiPost` in multiple files | ✅ Fixed (AgentForgeClient) |
 | 4 | No CONTRIBUTING.md | ⬜ Open |
 | 5 | No .gitignore for generated/temp files | ⬜ Open |
 | 6 | `buildPermissionFlags` fail-open default — returns empty string for unknown modes | ⬜ Open |
@@ -97,7 +97,7 @@
 - Settings page (server config, watchdog, agents, MCP, system prompt, about)
 - Session naming with readable auto-names
 - MCP install/uninstall helpers + join-from-CLI
-- Projects directory scanning (ENSEMBLE_PROJECTS_DIR)
+- Projects directory scanning (AGENT_FORGE_PROJECTS_DIR)
 - SKILL.md for agent knowledge
 - Docker + docker-compose + Ubuntu install script
 - Comprehensive docs (API.md, ARCHITECTURE.md, SETUP.md)
@@ -108,7 +108,7 @@
 - Clean separation: types/ lib/ services/ cli/ scripts/ web/
 - AgentRuntime abstraction (TmuxRuntime / PtySessionManager)
 - MCP-based agent communication (~100ms vs 3-5s shell)
-- EnsembleClient data layer shared between TUI and SPA
+- AgentForgeClient data layer shared between TUI and SPA
 
 **Feature Gaps vs Competitors (CrewAI/AutoGen/LangGraph/Swarm):**
 - No built-in tool/function calling framework
@@ -123,4 +123,4 @@
 - **License:** MIT (TBD — file not created yet)
 - **Position as:** "experimental developer tool", not "production framework"
 - **Primary UI:** React SPA (TUI kept as fallback)
-- **Communication:** MCP default, shell fallback (`ENSEMBLE_COMM_MODE`)
+- **Communication:** MCP default, shell fallback (`AGENT_FORGE_COMM_MODE`)

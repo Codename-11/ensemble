@@ -64,7 +64,7 @@ export interface JoinTeamResponse {
     id: string
     name: string
     description: string
-    status: EnsembleTeam['status']
+    status: AgentForgeTeam['status']
     visibility: TeamVisibility
     lifecycle: SessionLifecycle
     agent_count: number
@@ -79,7 +79,7 @@ export interface LobbyTeam {
   id: string
   name: string
   description: string
-  status: EnsembleTeam['status']
+  status: AgentForgeTeam['status']
   visibility: TeamVisibility
   agentCount: number
   participantCount: number
@@ -97,17 +97,17 @@ export interface ShareLink {
   expiresAt?: string | null
 }
 
-export interface EnsembleTeam {
+export interface AgentForgeTeam {
   id: string
   name: string
   description: string
   status: 'forming' | 'active' | 'paused' | 'completed' | 'disbanded' | 'failed'
-  agents: EnsembleTeamAgent[]
+  agents: AgentForgeTeamAgent[]
   createdBy: string
   createdAt: string
   completedAt?: string
   feedMode: 'silent' | 'summary' | 'live'
-  result?: EnsembleTeamResult
+  result?: AgentForgeTeamResult
   plan?: TeamPlan
   config?: TeamConfig
   /** Team visibility mode. Default: 'private'. */
@@ -126,7 +126,7 @@ export interface EnsembleTeam {
   tags?: string[]
 }
 
-export interface EnsembleTeamAgent {
+export interface AgentForgeTeamAgent {
   agentId: string
   name: string
   program: string
@@ -143,7 +143,7 @@ export interface EnsembleTeamAgent {
   personality?: string
 }
 
-export interface EnsembleTeamResult {
+export interface AgentForgeTeamResult {
   summary: string
   decisions: string[]
   discoveries: string[]
@@ -153,7 +153,7 @@ export interface EnsembleTeamResult {
   disbandReason?: string    // why the team was disbanded
 }
 
-export interface EnsembleMessage {
+export interface AgentForgeMessage {
   id: string
   teamId: string
   from: string

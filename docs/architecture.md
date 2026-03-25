@@ -71,7 +71,7 @@ React + Vite single-page application providing a browser-based dashboard:
 
 Stack: React 19, Zustand (state), Tailwind CSS 4, xterm.js, Vite 6.
 
-### CLI (`cli/ensemble.ts`)
+### CLI (`cli/agent-forge.ts`)
 
 Terminal-based interface for headless operation:
 
@@ -85,7 +85,7 @@ Terminal-based interface for headless operation:
 
 Rich terminal UI for watching collaborations in real time. Subscribes to the SSE stream and renders a color-coded message feed with agent badges.
 
-### MCP Server (`mcp/ensemble-mcp-server.mjs`)
+### MCP Server (`mcp/agent-forge-mcp-server.mjs`)
 
 Model Context Protocol (MCP) stdio server that gives agents native tools for team communication:
 
@@ -103,7 +103,7 @@ Runs as a child process of each agent. Configured via environment variables:
 
 Implements the MCP JSON-RPC protocol (version `2024-11-05`) over stdin/stdout.
 
-### Agent-Forge Service (`services/ensemble-service.ts`)
+### Agent-Forge Service (`services/agent-forge-service.ts`)
 
 The orchestration brain. Manages the full team lifecycle:
 
@@ -142,12 +142,12 @@ Key operations: `createSession`, `killSession`, `sendKeys`, `pasteFromFile`, `ca
 
 The correct runtime is auto-selected based on `os.platform()`.
 
-### Agent-Forge Registry (`lib/ensemble-registry.ts`)
+### Agent-Forge Registry (`lib/agent-forge-registry.ts`)
 
 File-based persistence layer:
 
-- **Teams** stored in `~/.agent-forge/ensemble/teams.json` (JSON array with file-level locking via mkdir lock)
-- **Messages** stored per-team in JSONL format at `~/.agent-forge/ensemble/messages/<teamId>.jsonl`
+- **Teams** stored in `~/.agent-forge/agent-forge/teams.json` (JSON array with file-level locking via mkdir lock)
+- **Messages** stored per-team in JSONL format at `~/.agent-forge/agent-forge/messages/<teamId>.jsonl`
 - Supports concurrent access with stale lock detection and retry
 
 ### Agent Watchdog (`lib/agent-watchdog.ts`)
@@ -197,7 +197,7 @@ Optional structured collaboration mode with three phases:
 
 Phase transitions are detected by pattern-matching agent messages for completion signals.
 
-### Bridge (`scripts/ensemble-bridge.mjs`)
+### Bridge (`scripts/agent-forge-bridge.mjs`)
 
 Cross-platform Node.js process that bridges file-based agent communication with the HTTP API:
 
@@ -234,7 +234,7 @@ MCP Server (child process of Agent A)
 POST /api/agent-forge/teams/:id  (HTTP to server)
        |
        v
-ensemble-service.sendTeamMessage()
+agent-forge-service.sendTeamMessage()
   1. Store message in JSONL registry
   2. Identify recipients (all active agents except sender)
   3. For each recipient:
@@ -258,13 +258,13 @@ Agent A runs: team-say.sh <teamId> <name> team "Found a bug"
 Appends JSON line to messages.jsonl (atomic write)
        |
        v
-ensemble-bridge.mjs detects new line
+agent-forge-bridge.mjs detects new line
        |
        v
 POST /api/agent-forge/teams/:id  (HTTP)
        |
        v
-ensemble-service routes to Agent B's session
+agent-forge-service routes to Agent B's session
        |
        v
 Agent B runs: team-read.sh <teamId>
@@ -318,7 +318,7 @@ React component updates via Zustand store
 ## File Structure
 
 ```
-ensemble/
+agent-forge/
 |-- server.ts                      # HTTP server (all API routes)
 |-- agents.json                    # Agent program definitions (5 agents)
 |-- collab-templates.json          # Collaboration templates (4 templates)
@@ -327,11 +327,11 @@ ensemble/
 |-- tsconfig.json
 |
 |-- cli/
-|   |-- ensemble.ts                # CLI entry point
+|   |-- agent-forge.ts                # CLI entry point
 |   +-- monitor.ts                 # TUI monitor
 |
 |-- services/
-|   +-- ensemble-service.ts        # Orchestration service (team lifecycle)
+|   +-- agent-forge-service.ts        # Orchestration service (team lifecycle)
 |
 |-- lib/
 |   |-- agent-config.ts            # agents.json loader + program resolver
@@ -340,9 +340,9 @@ ensemble/
 |   |-- agent-watchdog.ts          # Idle/stall detection
 |   |-- cli-style.ts               # Terminal color/style helpers
 |   |-- collab-paths.ts            # Runtime file path contract
-|   |-- ensemble-client.ts         # HTTP client for Agent-Forge API
-|   |-- ensemble-paths.ts          # Data directory paths (~/.agent-forge/)
-|   |-- ensemble-registry.ts       # JSON/JSONL persistence with locking
+|   |-- agent-forge-client.ts         # HTTP client for Agent-Forge API
+|   |-- agent-forge-paths.ts          # Data directory paths (~/.agent-forge/)
+|   |-- agent-forge-registry.ts       # JSON/JSONL persistence with locking
 |   |-- hosts-config.ts            # Multi-host discovery
 |   |-- pty-session-manager.ts     # Windows node-pty runtime
 |   |-- staged-workflow.ts         # Plan/exec/verify workflow
@@ -350,14 +350,14 @@ ensemble/
 |
 |-- types/
 |   |-- agent-program.ts           # AgentProgram type definition
-|   +-- ensemble.ts                # Team, Message, Agent, Template types
+|   +-- agent-forge.ts                # Team, Message, Agent, Template types
 |
 |-- mcp/
-|   +-- ensemble-mcp-server.mjs    # MCP stdio server (team_say/read/status)
+|   +-- agent-forge-mcp-server.mjs    # MCP stdio server (team_say/read/status)
 |
 |-- scripts/
 |   |-- collab-launch.mjs          # Cross-platform team launcher
-|   |-- ensemble-bridge.mjs        # File-to-HTTP message bridge
+|   |-- agent-forge-bridge.mjs        # File-to-HTTP message bridge
 |   |-- setup-claude-code.mjs      # Install /collab skill in Claude Code
 |   |-- team-say.mjs               # Shell-based message send
 |   |-- team-read.mjs              # Shell-based message read
@@ -367,7 +367,7 @@ ensemble/
 |   |-- src/
 |   |   |-- App.tsx                # Root component
 |   |   |-- main.tsx               # Entry point
-|   |   |-- hooks/useEnsemble.ts   # API hooks + SSE subscription
+|   |   |-- hooks/useAgentForge.ts   # API hooks + SSE subscription
 |   |   |-- stores/ui-store.ts     # Zustand UI state
 |   |   |-- components/
 |   |   |   |-- AgentBadge.tsx     # Agent name/color badge
@@ -381,7 +381,7 @@ ensemble/
 |   +-- package.json               # SPA dependencies
 |
 |-- tests/
-|   |-- ensemble.test.ts           # Integration tests
+|   |-- agent-forge.test.ts           # Integration tests
 |   |-- onboarding-smoke.test.ts   # Smoke tests
 |   +-- agent-watchdog.test.ts     # Watchdog unit tests
 |
@@ -398,8 +398,8 @@ Controlled by `AGENT_FORGE_DATA_DIR` env var. Contains durable state:
 
 ```
 ~/.agent-forge/
-  ensemble/
-    teams.json              # Array of all EnsembleTeam objects
+  agent-forge/
+    teams.json              # Array of all AgentForgeTeam objects
     messages/
       <teamId>.jsonl        # One JSONL file per team
   hosts.json                # Multi-host configuration (optional)

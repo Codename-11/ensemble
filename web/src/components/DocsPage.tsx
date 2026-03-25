@@ -103,7 +103,7 @@ cd agent-forge
 npm install
 npm run dev`
 
-  const cliSnippet = `npx tsx cli/ensemble.ts run "Review the auth module" --agents codex,claude`
+  const cliSnippet = `npx tsx cli/agent-forge.ts run "Review the auth module" --agents codex,claude`
 
   const pythonJoinSnippet = `import requests
 

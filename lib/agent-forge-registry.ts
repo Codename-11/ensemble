@@ -2,11 +2,11 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import { v4 as uuidv4 } from 'uuid'
-import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest } from '../types/ensemble'
-import { getEnsembleRegistryDir } from './ensemble-paths'
+import type { AgentForgeTeam, AgentForgeMessage, CreateTeamRequest } from '../types/agent-forge'
+import { getAgentForgeRegistryDir } from './agent-forge-paths'
 import { collabMessagesFile } from './collab-paths'
 
-const REGISTRY_DIR = getEnsembleRegistryDir()
+const REGISTRY_DIR = getAgentForgeRegistryDir()
 const TEAMS_FILE = path.join(REGISTRY_DIR, 'teams.json')
 const MESSAGES_DIR = path.join(REGISTRY_DIR, 'messages')
 const TEAMS_LOCK_DIR = `${TEAMS_FILE}.lock`
@@ -28,13 +28,13 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
-function readTeamsFile(): EnsembleTeam[] {
+function readTeamsFile(): AgentForgeTeam[] {
   ensureDir(REGISTRY_DIR)
   if (!fs.existsSync(TEAMS_FILE)) return []
   return JSON.parse(fs.readFileSync(TEAMS_FILE, 'utf-8'))
 }
 
-function writeTeamsFile(teams: EnsembleTeam[]): void {
+function writeTeamsFile(teams: AgentForgeTeam[]): void {
   ensureDir(REGISTRY_DIR)
   fs.writeFileSync(TEAMS_FILE, JSON.stringify(teams, null, 2))
 }
@@ -81,8 +81,8 @@ function withTeamsLock<T>(fn: () => T): T {
   }
 }
 
-function migrateTeam(raw: unknown): EnsembleTeam {
-  const team = raw as EnsembleTeam
+function migrateTeam(raw: unknown): AgentForgeTeam {
+  const team = raw as AgentForgeTeam
   return {
     ...team,
     visibility: team.visibility ?? 'private',
@@ -91,26 +91,26 @@ function migrateTeam(raw: unknown): EnsembleTeam {
   }
 }
 
-export function loadTeams(): EnsembleTeam[] {
+export function loadTeams(): AgentForgeTeam[] {
   return withTeamsLock(() => (readTeamsFile() as unknown[]).map(migrateTeam))
 }
 
-export function getTeamRaw(id: string): EnsembleTeam | undefined {
+export function getTeamRaw(id: string): AgentForgeTeam | undefined {
   return loadTeams().find(t => t.id === id)
 }
 
-export function saveTeams(teams: EnsembleTeam[]): void {
+export function saveTeams(teams: AgentForgeTeam[]): void {
   withTeamsLock(() => {
     writeTeamsFile(teams)
   })
 }
 
-export function getTeam(id: string): EnsembleTeam | undefined {
+export function getTeam(id: string): AgentForgeTeam | undefined {
   return loadTeams().find(t => t.id === id)
 }
 
 
-export function createTeam(request: CreateTeamRequest): EnsembleTeam {
+export function createTeam(request: CreateTeamRequest): AgentForgeTeam {
   return withTeamsLock(() => {
     const teams = readTeamsFile()
 
@@ -124,7 +124,7 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
     // Track per-program numbering
     const programIndex: Record<string, number> = {}
 
-    const team: EnsembleTeam = {
+    const team: AgentForgeTeam = {
       id: uuidv4(),
       name: request.name,
       description: request.description,
@@ -160,7 +160,7 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
   })
 }
 
-export function updateTeam(id: string, updates: Partial<EnsembleTeam>): EnsembleTeam | undefined {
+export function updateTeam(id: string, updates: Partial<AgentForgeTeam>): AgentForgeTeam | undefined {
   return withTeamsLock(() => {
     const teams = readTeamsFile()
     const idx = teams.findIndex(t => t.id === id)
@@ -188,27 +188,27 @@ export function deleteTeam(id: string): boolean {
   })
 }
 
-export function appendMessage(teamId: string, message: EnsembleMessage): void {
+export function appendMessage(teamId: string, message: AgentForgeMessage): void {
   const dir = path.join(MESSAGES_DIR, teamId)
   ensureDir(dir)
   const file = path.join(dir, 'feed.jsonl')
   fs.appendFileSync(file, JSON.stringify(message) + '\n')
 }
 
-export function getMessages(teamId: string, since?: string): EnsembleMessage[] {
+export function getMessages(teamId: string, since?: string): AgentForgeMessage[] {
   const sources = [
     path.join(MESSAGES_DIR, teamId, 'feed.jsonl'),
     collabMessagesFile(teamId),
   ]
 
   const seenIds = new Set<string>()
-  let messages: EnsembleMessage[] = []
+  let messages: AgentForgeMessage[] = []
 
   for (const file of sources) {
     if (!fs.existsSync(file)) continue
     const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').filter(Boolean)
     for (const line of lines) {
-      const msg = JSON.parse(line) as EnsembleMessage
+      const msg = JSON.parse(line) as AgentForgeMessage
       const dedupeKey = msg.id || `${msg.from}:${msg.timestamp}:${msg.content?.slice(0, 50)}`
       if (!seenIds.has(dedupeKey)) {
         seenIds.add(dedupeKey)

@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-git clone <repo-url> && cd ensemble
+git clone <repo-url> && cd agent-forge
 npm install
 npm start
 ```
@@ -29,7 +29,7 @@ The server starts on `http://localhost:23000`. Open the web dashboard or use the
 ```bash
 # Clone and install
 git clone <repo-url>
-cd ensemble
+cd agent-forge
 npm install
 
 # Run in development mode (server + web SPA with hot reload)
@@ -104,24 +104,24 @@ The included `Dockerfile` builds the web SPA and runs the server:
 
 ```bash
 # Build
-docker build -t ensemble .
+docker build -t agent-forge .
 
 # Run
 docker run -d \
-  --name ensemble \
+  --name agent-forge \
   -p 23000:23000 \
-  -v ensemble-data:/root/.agent-forge \
-  ensemble
+  -v agent-forge-data:/root/.agent-forge \
+  agent-forge
 
 # With custom configuration
 docker run -d \
-  --name ensemble \
+  --name agent-forge \
   -p 23000:23000 \
   -e AGENT_FORGE_PORT=23000 \
   -e AGENT_FORGE_HOST=0.0.0.0 \
   -e AGENT_FORGE_DATA_DIR=/data \
-  -v ensemble-data:/data \
-  ensemble
+  -v agent-forge-data:/data \
+  agent-forge
 ```
 
 The Docker image includes tmux, curl, and Python 3 for full agent support on Linux.
@@ -129,7 +129,7 @@ The Docker image includes tmux, curl, and Python 3 for full agent support on Lin
 **Important:** When deploying with Docker, you need the AI agent CLIs available inside the container. Mount them or install them in a custom Dockerfile layer:
 
 ```dockerfile
-FROM ensemble:latest
+FROM agent-forge:latest
 # Install your agent CLIs here
 RUN npm install -g @anthropic/claude-code
 RUN npm install -g @openai/codex
@@ -147,21 +147,21 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 
 # Clone and install
-git clone <repo-url> /opt/ensemble
-cd /opt/ensemble
+git clone <repo-url> /opt/agent-forge
+cd /opt/agent-forge
 npm install --production
 cd web && npm install && npm run build && cd ..
 
 # Create a systemd service
-sudo tee /etc/systemd/system/ensemble.service << EOF
+sudo tee /etc/systemd/system/agent-forge.service << EOF
 [Unit]
 Description=Agent-Forge Multi-Agent Server
 After=network.target
 
 [Service]
 Type=simple
-User=ensemble
-WorkingDirectory=/opt/ensemble
+User=agent-forge
+WorkingDirectory=/opt/agent-forge
 ExecStart=/usr/bin/npx tsx server.ts
 Environment=NODE_ENV=production
 Environment=AGENT_FORGE_PORT=23000
@@ -175,11 +175,11 @@ EOF
 
 # Enable and start
 sudo systemctl daemon-reload
-sudo systemctl enable ensemble
-sudo systemctl start ensemble
+sudo systemctl enable agent-forge
+sudo systemctl start agent-forge
 
 # Check status
-sudo systemctl status ensemble
+sudo systemctl status agent-forge
 curl http://localhost:23000/api/v1/health
 ```
 
@@ -320,13 +320,13 @@ AGENT_FORGE_AGENTS_CONFIG=/path/to/my-agents.json npm start
 
 ### How It Works
 
-When ensemble spawns an agent, it automatically configures MCP (Model Context Protocol) tools so the agent can communicate with teammates without shell commands:
+When agent-forge spawns an agent, it automatically configures MCP (Model Context Protocol) tools so the agent can communicate with teammates without shell commands:
 
 1. **Config generation** -- The spawner writes a JSON MCP config file per agent at `<runtime-dir>/<teamId>/<agentName>-mcp.json`
 2. **Config injection** -- The config is passed to the agent CLI via the appropriate mechanism:
    - `config-flag` agents (Codex): MCP server URL is passed as a CLI flag
    - `config-file` agents (Claude): a `--mcp-config` flag points to the JSON file
-3. **Runtime** -- The MCP server (`mcp/ensemble-mcp-server.mjs`) runs as a stdio child process of the agent, handling `team_say`, `team_read`, and `team_status` tool calls
+3. **Runtime** -- The MCP server (`mcp/agent-forge-mcp-server.mjs`) runs as a stdio child process of the agent, handling `team_say`, `team_read`, and `team_status` tool calls
 
 ### MCP Config File Format
 
@@ -337,7 +337,7 @@ The auto-generated config follows the standard MCP format:
   "mcpServers": {
     "agent-forge": {
       "command": "node",
-      "args": ["/path/to/ensemble/mcp/ensemble-mcp-server.mjs"],
+      "args": ["/path/to/agent-forge/mcp/agent-forge-mcp-server.mjs"],
       "env": {
         "AGENT_FORGE_TEAM_ID": "abc-123",
         "AGENT_FORGE_AGENT_NAME": "claude-1",
@@ -359,7 +359,7 @@ export AGENT_FORGE_AGENT_NAME=test-agent
 export AGENT_FORGE_API_URL=http://localhost:23000
 
 # Start the MCP server
-node mcp/ensemble-mcp-server.mjs
+node mcp/agent-forge-mcp-server.mjs
 
 # Send an initialize request (paste this as a single line):
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
@@ -375,7 +375,7 @@ Logs go to stderr, JSON-RPC responses go to stdout.
 
 ### Installing as a Claude Code Skill
 
-The setup script installs ensemble as a `/collab` skill in Claude Code:
+The setup script installs agent-forge as a `/collab` skill in Claude Code:
 
 ```bash
 npm run setup
@@ -424,7 +424,7 @@ Notifications include: task description, duration, message count, and per-agent 
 
 To distribute agents across multiple machines:
 
-1. Run the ensemble server on each machine
+1. Run the agent-forge server on each machine
 2. Create `~/.agent-forge/hosts.json`:
 
    ```json
@@ -495,7 +495,7 @@ Compare with the `readyMarker` value and adjust if needed.
 
 ### Messages not being delivered
 
-1. Check that the ensemble server is running: `curl http://localhost:23000/api/v1/health`
+1. Check that the agent-forge server is running: `curl http://localhost:23000/api/v1/health`
 2. Check that agent sessions exist: `curl http://localhost:23000/api/agent-forge/sessions`
 3. Check team status: `curl http://localhost:23000/api/agent-forge/teams/<id>`
 

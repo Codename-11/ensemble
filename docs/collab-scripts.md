@@ -44,7 +44,7 @@ Output:
   ✓ Server running
   ✓ Team created (collab-1774001029143-7384)
   ✓ Bridge started
-  ✓ Monitor ready (tmux attach -t ensemble-abc-123)
+  ✓ Monitor ready (tmux attach -t agent-forge-abc-123)
   ✓ Agents communicating (2 messages)
 
   Team is live! codex-1 + claude-2 are collaborating.
@@ -159,7 +159,7 @@ These use `fcntl.flock` for atomic JSONL writes to prevent message corruption.
 
 ---
 
-## ensemble-bridge.sh
+## agent-forge-bridge.sh
 
 **Message bridge between file-based and HTTP communication.** Started automatically by `collab-launch.sh`.
 
@@ -184,5 +184,5 @@ python3 scripts/parse-messages.py <file> [options]
 |---|---|
 | `--skip N` | Skip first N lines |
 | `--max-content N` | Truncate content to N chars (default: 500) |
-| `--include-ensemble` | Include agent-forge system messages |
+| `--include-agent-forge` | Include agent-forge system messages |
 | `--meta-only` | Output metadata (count, timestamps) instead of messages |

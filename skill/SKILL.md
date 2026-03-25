@@ -100,6 +100,6 @@ When done: summarize + cleanup poller/bridge PIDs.
 - Do not truncate or remove `messages.jsonl`
 - Multiple collabs can run simultaneously — each has own `/tmp/agent-forge/<TEAM_ID>/` namespace
 - `team-say.sh` uses `fcntl.flock` for atomic JSONL writes
-- `ensemble-bridge.sh` has single-instance guard, health check, exponential backoff
+- `agent-forge-bridge.sh` has single-instance guard, health check, exponential backoff
 - `.finished` and `summary.txt` are written by agent-forge service, NOT by scripts
 - Bridge auto-stops when it sees `.finished` marker

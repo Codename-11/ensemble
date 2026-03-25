@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# ensemble-bridge — Watches message file and posts to API
-# Usage: ensemble-bridge.sh <team-id> [api-url]
+# agent-forge-bridge — Watches message file and posts to API
+# Usage: agent-forge-bridge.sh <team-id> [api-url]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./collab-paths.sh
 source "$SCRIPT_DIR/collab-paths.sh"
 
-TEAM_ID="${1:?Usage: ensemble-bridge.sh <team-id>}"
+TEAM_ID="${1:?Usage: agent-forge-bridge.sh <team-id>}"
 API="${2:-http://localhost:23000}"
 RUNTIME_DIR="$(collab_runtime_dir "$TEAM_ID")"
 FILE="$(collab_messages_file "$TEAM_ID")"

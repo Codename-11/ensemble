@@ -36,7 +36,7 @@ This starts the API server (port 23000) and the React dashboard (port 5173).
 
 **From the CLI:**
 ```bash
-npx tsx cli/ensemble.ts run "Review the auth module" --agents codex,claude
+npx tsx cli/agent-forge.ts run "Review the auth module" --agents codex,claude
 ```
 
 **From the API:**

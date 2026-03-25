@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Settings, Save, Loader2, ChevronRight, Globe, Lock, Link, Copy, Check, Eye, Users } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, TeamConfig, TeamVisibility } from '../types'
+import type { AgentForgeTeam, TeamConfig, TeamVisibility } from '../types'
 
 interface TeamControlsProps {
-  team: EnsembleTeam
+  team: AgentForgeTeam
   messageCount: number
 }
 
@@ -223,7 +223,7 @@ export function TeamControls({ team, messageCount }: TeamControlsProps) {
 
 // ── Visibility Controls ──────────────────────────────────────────
 
-function VisibilityControls({ team }: { team: EnsembleTeam }) {
+function VisibilityControls({ team }: { team: AgentForgeTeam }) {
   const [changing, setChanging] = useState(false)
   const [copied, setCopied] = useState(false)
   const [shareUrl, setShareUrl] = useState<string | null>(team.shareLink?.url ?? null)
@@ -241,7 +241,7 @@ function VisibilityControls({ team }: { team: EnsembleTeam }) {
         body: JSON.stringify({ visibility: v }),
       })
       if (res.ok) {
-        const data = await res.json() as { team?: EnsembleTeam; shareLink?: { url: string } }
+        const data = await res.json() as { team?: AgentForgeTeam; shareLink?: { url: string } }
         if (data.shareLink?.url) setShareUrl(data.shareLink.url)
         else if (v === 'private') setShareUrl(null)
       }

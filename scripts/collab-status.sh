@@ -185,7 +185,7 @@ collect_last_activity() {
 
 message_meta() {
   local messages_file="${1:?messages file required}"
-  python3 "$SCRIPT_DIR/parse-messages.py" "$messages_file" --meta-only --include-ensemble
+  python3 "$SCRIPT_DIR/parse-messages.py" "$messages_file" --meta-only --include-agent-forge
 }
 
 render_snapshot() {

@@ -241,7 +241,7 @@ Get a single team with its full message history.
     {
       "id": "msg-1",
       "teamId": "abc-123",
-      "from": "ensemble",
+      "from": "agent-forge",
       "to": "team",
       "content": "claude-1 (claude @ my-laptop) has joined #review-42",
       "type": "chat",
@@ -636,7 +636,7 @@ curl -N http://localhost:23000/api/agent-forge/sessions/review-42-claude-1/strea
 
 ## Types Reference
 
-### EnsembleTeam
+### AgentForgeTeam
 
 ```typescript
 {
@@ -644,16 +644,16 @@ curl -N http://localhost:23000/api/agent-forge/sessions/review-42-claude-1/strea
   name: string                         // Short display name
   description: string                  // Task / prompt
   status: 'forming' | 'active' | 'paused' | 'completed' | 'disbanded' | 'failed'
-  agents: EnsembleTeamAgent[]
+  agents: AgentForgeTeamAgent[]
   createdBy: string                    // Username or hostname
   createdAt: string                    // ISO 8601
   completedAt?: string                 // ISO 8601, set on disband
   feedMode: 'silent' | 'summary' | 'live'
-  result?: EnsembleTeamResult
+  result?: AgentForgeTeamResult
 }
 ```
 
-### EnsembleTeamAgent
+### AgentForgeTeamAgent
 
 ```typescript
 {
@@ -668,13 +668,13 @@ curl -N http://localhost:23000/api/agent-forge/sessions/review-42-claude-1/strea
 }
 ```
 
-### EnsembleMessage
+### AgentForgeMessage
 
 ```typescript
 {
   id: string                           // UUID
   teamId: string                       // Parent team ID
-  from: string                         // Sender: agent name, "user", or "ensemble"
+  from: string                         // Sender: agent name, "user", or "agent-forge"
   to: string                           // Recipient: agent name or "team"
   content: string                      // Message body
   type: 'chat' | 'decision' | 'question' | 'result'
@@ -683,7 +683,7 @@ curl -N http://localhost:23000/api/agent-forge/sessions/review-42-claude-1/strea
 }
 ```
 
-### EnsembleTeamResult
+### AgentForgeTeamResult
 
 ```typescript
 {

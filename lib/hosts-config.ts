@@ -5,7 +5,7 @@
 
 import fs from 'fs'
 import os from 'os'
-import { getHostsConfigPath } from './ensemble-paths'
+import { getHostsConfigPath } from './agent-forge-paths'
 
 export interface Host {
   id: string

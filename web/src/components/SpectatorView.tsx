@@ -6,7 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Loader2, Radio, Users, Eye, ArrowLeft, UserPlus, Volume2, VolumeX } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, EnsembleMessage, RemoteParticipant } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage, RemoteParticipant } from '../types'
 import { MessageFeed } from './MessageFeed'
 import { AgentBadge, AgentCard } from './AgentBadge'
 import { SteerInput } from './SteerInput'
@@ -21,8 +21,8 @@ interface SpectatorViewProps {
 }
 
 export function SpectatorView({ teamId, token, onBack, onWatchReplay }: SpectatorViewProps) {
-  const [team, setTeam] = useState<EnsembleTeam | null>(null)
-  const [messages, setMessages] = useState<EnsembleMessage[]>([])
+  const [team, setTeam] = useState<AgentForgeTeam | null>(null)
+  const [messages, setMessages] = useState<AgentForgeMessage[]>([])
   const [participants, setParticipants] = useState<RemoteParticipant[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,8 +78,8 @@ export function SpectatorView({ teamId, token, onBack, onWatchReplay }: Spectato
     es.addEventListener('init', (e) => {
       try {
         const data = JSON.parse((e as MessageEvent).data) as {
-          team: EnsembleTeam
-          messages: EnsembleMessage[]
+          team: AgentForgeTeam
+          messages: AgentForgeMessage[]
           participants: RemoteParticipant[]
         }
         setTeam(data.team)
@@ -93,7 +93,7 @@ export function SpectatorView({ teamId, token, onBack, onWatchReplay }: Spectato
 
     es.addEventListener('message', (e) => {
       try {
-        const data = JSON.parse((e as MessageEvent).data) as { messages: EnsembleMessage[] }
+        const data = JSON.parse((e as MessageEvent).data) as { messages: AgentForgeMessage[] }
         setMessages(prev => {
           const existing = new Set(prev.map(m => m.id))
           const news = data.messages.filter(m => !existing.has(m.id))

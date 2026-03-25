@@ -59,13 +59,14 @@ describe('onboarding smoke test', () => {
   let port: number
   let baseUrl: string
   beforeAll(async () => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-onboarding-'))
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-forge-onboarding-'))
     port = await getFreePort()
     baseUrl = `http://127.0.0.1:${port}`
 
     process.env.AGENT_FORGE_DATA_DIR = tempRoot
     process.env.AGENT_FORGE_PORT = String(port)
     process.env.AGENT_FORGE_URL = baseUrl
+    process.env.AGENT_FORGE_ADMIN_PASSWORD = 'admin-pass'
 
     vi.resetModules()
     vi.doMock('../lib/agent-spawner', () => ({
@@ -108,7 +109,7 @@ describe('onboarding smoke test', () => {
   })
 
   it('supports the documented quick start through health, CLI, and first team creation', { timeout: 15000 }, async () => {
-    const cliPath = path.resolve(process.cwd(), 'cli/ensemble.ts')
+    const cliPath = path.resolve(process.cwd(), 'cli/agent-forge.ts')
     const tsxBin = os.platform() === 'win32' ? 'tsx.cmd' : 'tsx'
     const tsxPath = path.resolve(process.cwd(), 'node_modules', '.bin', tsxBin)
     const cliEnv = {
@@ -134,9 +135,21 @@ describe('onboarding smoke test', () => {
     const teamsBeforeOutput = (await execFileAsync(tsxPath, [cliPath, 'teams'], execOpts)).stdout
     expect(teamsBeforeOutput).toContain('No teams found')
 
-    const createResponse = await fetch(`${baseUrl}/api/agent-forge/teams`, {
+    const loginResponse = await fetch(`${baseUrl}/api/agent-forge/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'admin-pass' }),
+    })
+    expect(loginResponse.status).toBe(200)
+    const cookie = loginResponse.headers.get('set-cookie')
+    expect(cookie).toBeTruthy()
+
+    const createResponse = await fetch(`${baseUrl}/api/agent-forge/teams`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie: cookie!,
+      },
       body: JSON.stringify({
         name: 'my-first-team',
         description: 'Review the README and suggest improvements',

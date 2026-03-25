@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Loader2, Clock, Users, Search, Trash2, RotateCcw } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam } from '../types'
+import type { AgentForgeTeam } from '../types'
 import { navigate } from '../hooks/useRouter'
 
 function formatDuration(ms: number): string {
@@ -24,7 +24,7 @@ function timeAgo(isoString: string): string {
 }
 
 export function HistoryView() {
-  const [teams, setTeams] = useState<EnsembleTeam[]>([])
+  const [teams, setTeams] = useState<AgentForgeTeam[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -35,7 +35,7 @@ export function HistoryView() {
       const res = await fetch('/api/agent-forge/teams')
       if (!res.ok) { setError(`Failed: ${res.status}`); return }
       const data = await res.json()
-      const all: EnsembleTeam[] = data.teams ?? data
+      const all: AgentForgeTeam[] = data.teams ?? data
       const past = all
         .filter(t => t.status !== 'active' && t.status !== 'forming')
         .sort((a, b) => new Date(b.completedAt ?? b.createdAt).getTime() - new Date(a.completedAt ?? a.createdAt).getTime())

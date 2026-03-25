@@ -9,7 +9,7 @@ nav_order: 5
 
 ```bash
 # Run via tsx
-npx tsx cli/ensemble.ts <command>
+npx tsx cli/agent-forge.ts <command>
 
 # Or if linked
 agent-forge <command>

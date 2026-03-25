@@ -85,7 +85,7 @@ function getMcpServerPath(): string {
   const __dirname = path.dirname(new URL(import.meta.url).pathname)
   // On Windows, strip leading slash from /C:/... paths
   const dir = os.platform() === 'win32' ? __dirname.replace(/^\//, '') : __dirname
-  return path.join(dir, '..', 'mcp', 'ensemble-mcp-server.mjs')
+  return path.join(dir, '..', 'mcp', 'agent-forge-mcp-server.mjs')
 }
 
 /**

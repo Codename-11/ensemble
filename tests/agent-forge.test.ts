@@ -3,7 +3,7 @@ import os from 'os'
 import path from 'path'
 import { execFileSync } from 'child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam, StagedWorkflowConfig } from '../types/ensemble'
+import type { AgentForgeMessage, AgentForgeTeam, StagedWorkflowConfig } from '../types/agent-forge'
 
 const isWindows = os.platform() === 'win32'
 const TEAM_SAY_SCRIPT = isWindows
@@ -19,7 +19,7 @@ function runTeamSay(args: string[], opts?: { encoding: 'utf-8' }): string {
   return execFileSync(TEAM_SAY_SCRIPT, args, opts ?? { encoding: 'utf-8' })
 }
 
-function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
+function makeMessage(overrides: Partial<AgentForgeMessage> = {}): AgentForgeMessage {
   return {
     id: overrides.id ?? `msg-${Math.random().toString(36).slice(2, 8)}`,
     teamId: overrides.teamId ?? 'team-1',
@@ -31,7 +31,7 @@ function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage 
   }
 }
 
-function makeTeam(overrides: Partial<EnsembleTeam> = {}): EnsembleTeam {
+function makeTeam(overrides: Partial<AgentForgeTeam> = {}): AgentForgeTeam {
   return {
     id: overrides.id ?? 'team-1',
     name: overrides.name ?? 'test-team',
@@ -80,7 +80,7 @@ describe('getMessages() — dual store merge', () => {
   let teamId: string
 
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-registry-'))
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-forge-registry-'))
     teamId = `team-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     process.env.AGENT_FORGE_DATA_DIR = tempRoot
     vi.resetModules()
@@ -104,7 +104,7 @@ describe('getMessages() — dual store merge', () => {
     const msg = makeMessage({ id: 'feed-only', teamId, content: 'from feed' })
     writeJsonl(path.join(feedDir, 'feed.jsonl'), [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(1)
@@ -117,7 +117,7 @@ describe('getMessages() — dual store merge', () => {
     const msg = makeMessage({ id: 'tmp-only', teamId, content: 'from tmp' })
     writeJsonl(tmpFile, [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(1)
@@ -133,7 +133,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'tmp-msg', teamId, timestamp: '2026-01-01T10:00:01.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(2)
@@ -150,7 +150,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: sharedId, teamId, content: 'from tmp', timestamp: '2026-01-01T10:00:00.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     const matching = result.filter(m => m.id === sharedId)
@@ -166,7 +166,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'no-ts', teamId, timestamp: undefined as unknown as string }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     expect(result.map(m => m.id)).toEqual(['early', 'late', 'no-ts'])
@@ -179,7 +179,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'new', teamId, timestamp: '2026-01-01T12:00:00.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId, '2026-01-01T11:00:00.000Z')
 
     expect(result).toHaveLength(1)
@@ -187,7 +187,7 @@ describe('getMessages() — dual store merge', () => {
   })
 
   it('returns empty array when no files exist', async () => {
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages('nonexistent-team-xyz')
     expect(result).toEqual([])
   })
@@ -200,7 +200,7 @@ describe('getMessages() — dual store merge', () => {
     writeJsonl(path.join(feedDir, 'feed.jsonl'), [msg])
     writeJsonl(path.join(TMP_AGENT_FORGE_DIR, teamId, 'messages.jsonl'), [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../lib/agent-forge-registry')
     const result = getMessages(teamId)
 
     // Should be deduplicated to 1 message
@@ -217,7 +217,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
   let tempRoot: string
 
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-disband-'))
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-forge-disband-'))
     process.env.AGENT_FORGE_DATA_DIR = tempRoot
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-18T12:05:00.000Z'))
@@ -227,7 +227,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.resetModules()
-    vi.doUnmock('../lib/ensemble-registry')
+    vi.doUnmock('../lib/agent-forge-registry')
     vi.doUnmock('../lib/agent-spawner')
     vi.doUnmock('../lib/hosts-config')
     vi.doUnmock('../lib/agent-runtime')
@@ -240,13 +240,13 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true })
   })
 
-  async function setupServiceWithMocks(team: EnsembleTeam, messages: EnsembleMessage[]) {
-    const appendedMessages: EnsembleMessage[] = []
-    vi.doMock('../lib/ensemble-registry', () => ({
+  async function setupServiceWithMocks(team: AgentForgeTeam, messages: AgentForgeMessage[]) {
+    const appendedMessages: AgentForgeMessage[] = []
+    vi.doMock('../lib/agent-forge-registry', () => ({
       getMessages: vi.fn(() => messages),
       loadTeams: vi.fn(() => [team]),
-      appendMessage: vi.fn((_id: string, msg: EnsembleMessage) => appendedMessages.push(msg)),
-      updateTeam: vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates })),
+      appendMessage: vi.fn((_id: string, msg: AgentForgeMessage) => appendedMessages.push(msg)),
+      updateTeam: vi.fn((_id: string, updates: Partial<AgentForgeTeam>) => ({ ...team, ...updates })),
       createTeam: vi.fn(),
       getTeam: vi.fn(() => team),
       saveTeams: vi.fn(),
@@ -276,13 +276,13 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../services/agent-forge-service')
     return { mod, appendedMessages }
   }
 
   it('auto-disbands when two different agents send completion signals within 60s', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Task is done', timestamp: '2026-03-18T12:04:20.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Alles afgerond', timestamp: '2026-03-18T12:04:50.000Z' }),
     ]
@@ -290,12 +290,12 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(true)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(true)
   })
 
   it('does NOT auto-disband when only one completion signal exists and idle is <= 120s', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Task is done', timestamp: '2026-03-18T12:03:40.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Still working', timestamp: '2026-03-18T12:03:50.000Z' }),
     ]
@@ -303,12 +303,12 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(false)
   })
 
   it('auto-disbands when one completion signal exists and team is idle for more than 120s', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Task is done', timestamp: '2026-03-18T12:02:30.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Still investigating', timestamp: '2026-03-18T12:02:40.000Z' }),
     ]
@@ -316,12 +316,12 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(true)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(true)
   })
 
   it('does NOT auto-disband when agents have no completion signal', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Still working on it', timestamp: '2026-03-18T12:03:40.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Analyzing code', timestamp: '2026-03-18T12:03:50.000Z' }),
     ]
@@ -329,7 +329,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(false)
   })
 
   it('does NOT auto-disband when last message has no timestamp', async () => {
@@ -337,7 +337,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const msgWithoutTs = makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Klaar' })
     // Explicitly delete timestamp to simulate missing field (can't use ?? with undefined)
     delete (msgWithoutTs as unknown as Record<string, unknown>).timestamp
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Done', timestamp: '2026-03-18T12:03:40.000Z' }),
       msgWithoutTs,
     ]
@@ -346,7 +346,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     await mod.checkIdleTeams()
 
     // Messages without timestamp get sorted last, and NaN timestamp → return false
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(false)
   })
 
   it('does NOT auto-disband when team has no active agents', async () => {
@@ -356,19 +356,19 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
         { agentId: 'a2', name: 'claude-2', program: 'claude', role: 'member', hostId: 'local', status: 'idle' },
       ],
     })
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Done', timestamp: '2026-03-18T12:03:40.000Z' }),
     ]
 
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(false)
   })
 
   it('does NOT auto-disband when signals come from the same agent only', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Task is done', timestamp: '2026-03-18T12:04:00.000Z' }),
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Alles afgerond', timestamp: '2026-03-18T12:04:30.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Still working...', timestamp: '2026-03-18T12:04:45.000Z' }),
@@ -377,21 +377,21 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(false)
   })
 
-  it('ignores ensemble messages when determining idle time', async () => {
+  it('ignores agent-forge messages when determining idle time', async () => {
     const team = makeTeam()
-    const messages: EnsembleMessage[] = [
+    const messages: AgentForgeMessage[] = [
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: 'Done', timestamp: '2026-03-18T12:02:30.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'Still working', timestamp: '2026-03-18T12:02:35.000Z' }),
-      makeMessage({ from: 'ensemble', teamId: 'team-1', content: 'Agent joined', timestamp: '2026-03-18T12:04:55.000Z' }),
+      makeMessage({ from: 'agent-forge', teamId: 'team-1', content: 'Agent joined', timestamp: '2026-03-18T12:04:55.000Z' }),
     ]
 
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
 
-    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(true)
+    expect(appendedMessages.some(m => m.content.includes('completion_suggested'))).toBe(true)
   })
 })
 
@@ -463,7 +463,7 @@ describe('team-say — output format', () => {
     expect(() => JSON.parse(line)).not.toThrow()
   })
 
-  it('message contains all required EnsembleMessage fields', () => {
+  it('message contains all required AgentForgeMessage fields', () => {
     runTeamSay([testTeamId, 'codex-1', 'claude-2', 'field check'])
     const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
 
@@ -573,7 +573,7 @@ describe('worktree isolation lifecycle', () => {
   let tempRoot: string
 
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-worktree-'))
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-forge-worktree-'))
     vi.resetModules()
     vi.restoreAllMocks()
   })
@@ -584,12 +584,12 @@ describe('worktree isolation lifecycle', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true })
   })
 
-  async function setupWorktreeService(team: EnsembleTeam) {
-    const appendedMessages: EnsembleMessage[] = []
+  async function setupWorktreeService(team: AgentForgeTeam) {
+    const appendedMessages: AgentForgeMessage[] = []
     const createTeam = vi.fn(() => team)
     const getTeam = vi.fn(() => team)
-    const updateTeam = vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates }))
-    const appendMessage = vi.fn((_id: string, message: EnsembleMessage) => appendedMessages.push(message))
+    const updateTeam = vi.fn((_id: string, updates: Partial<AgentForgeTeam>) => ({ ...team, ...updates }))
+    const appendMessage = vi.fn((_id: string, message: AgentForgeMessage) => appendedMessages.push(message))
     const spawnLocalAgent = vi.fn(async ({ name, program, workingDirectory, hostId }) => ({
       id: `${name}-id`,
       name,
@@ -609,7 +609,7 @@ describe('worktree isolation lifecycle', () => {
     const mergeWorktree = vi.fn(async () => ({ success: true }))
     const destroyWorktree = vi.fn(async () => {})
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../lib/agent-forge-registry', () => ({
       createTeam,
       getTeam,
       updateTeam,
@@ -662,7 +662,7 @@ describe('worktree isolation lifecycle', () => {
       collabBridgeResult: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.result`)),
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../services/agent-forge-service')
     return {
       mod,
       team,
@@ -700,14 +700,14 @@ describe('worktree isolation lifecycle', () => {
     })
     const { mod, mocks } = await setupWorktreeService(team)
 
-    await mod.createEnsembleTeam({
+    await mod.createAgentForgeTeam({
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }],
       workingDirectory: '/repo',
       useWorktrees: true,
     })
-    // Background spawn needs a tick to run (createEnsembleTeam returns immediately now)
+    // Background spawn needs a tick to run (createAgentForgeTeam returns immediately now)
     await new Promise(r => setTimeout(r, 100))
 
     expect(mocks.createWorktree).toHaveBeenCalledWith(team.id, 'codex-1', '/repo')
@@ -733,7 +733,7 @@ describe('worktree isolation lifecycle', () => {
     })
     const { mod, mocks } = await setupWorktreeService(team)
 
-    await mod.createEnsembleTeam({
+    await mod.createAgentForgeTeam({
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }],
@@ -813,7 +813,7 @@ describe('staged workflow integration', () => {
   let tempRoot: string
 
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-staged-'))
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-forge-staged-'))
     vi.resetModules()
     vi.restoreAllMocks()
   })
@@ -824,7 +824,7 @@ describe('staged workflow integration', () => {
     fs.rmSync(tempRoot, { recursive: true, force: true })
   })
 
-  async function setupStagedService(team: EnsembleTeam) {
+  async function setupStagedService(team: AgentForgeTeam) {
     const runtime = {
       capturePane: vi.fn(async () => '>'),
       sendKeys: vi.fn(async () => {}),
@@ -832,10 +832,10 @@ describe('staged workflow integration', () => {
     }
     const runStagedWorkflow = vi.fn(async () => {})
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../lib/agent-forge-registry', () => ({
       createTeam: vi.fn(() => team),
       getTeam: vi.fn(() => team),
-      updateTeam: vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates })),
+      updateTeam: vi.fn((_id: string, updates: Partial<AgentForgeTeam>) => ({ ...team, ...updates })),
       loadTeams: vi.fn(() => []),
       appendMessage: vi.fn(),
       getMessages: vi.fn(() => []),
@@ -886,7 +886,7 @@ describe('staged workflow integration', () => {
       runStagedWorkflow,
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../services/agent-forge-service')
     return { mod, runtime, runStagedWorkflow }
   }
 
@@ -903,7 +903,7 @@ describe('staged workflow integration', () => {
     const { mod, runtime, runStagedWorkflow } = await setupStagedService(team)
     const stagedConfig: StagedWorkflowConfig = { planTimeoutMs: 1500 }
 
-    await mod.createEnsembleTeam({
+    await mod.createAgentForgeTeam({
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }, { program: 'claude' }],
@@ -939,7 +939,7 @@ describe('staged workflow integration', () => {
     })
     const { mod, runtime, runStagedWorkflow } = await setupStagedService(team)
 
-    await mod.createEnsembleTeam({
+    await mod.createAgentForgeTeam({
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }, { program: 'claude' }],
@@ -959,7 +959,7 @@ describe('staged workflow integration', () => {
 // ─────────────────────────────────────────────────────
 describe('CreateTeamRequest staged types', () => {
   it('staged field is optional and defaults behavior', () => {
-    const request: import('../types/ensemble').CreateTeamRequest = {
+    const request: import('../types/agent-forge').CreateTeamRequest = {
       name: 'test',
       description: 'test',
       agents: [{ program: 'codex' }],
@@ -974,7 +974,7 @@ describe('CreateTeamRequest staged types', () => {
   })
 
   it('staged field defaults to undefined (opt-in)', () => {
-    const request: import('../types/ensemble').CreateTeamRequest = {
+    const request: import('../types/agent-forge').CreateTeamRequest = {
       name: 'test',
       description: 'test',
       agents: [{ program: 'codex' }],

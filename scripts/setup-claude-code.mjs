@@ -74,7 +74,7 @@ const scriptPerms = isWindows
       `Bash(${REPO_DIR}/scripts/collab-status.sh:*)`,
       `Bash(${REPO_DIR}/scripts/collab-cleanup.sh:*)`,
       `Bash(${REPO_DIR}/scripts/collab-replay.sh:*)`,
-      `Bash(${REPO_DIR}/scripts/ensemble-bridge.sh:*)`,
+      `Bash(${REPO_DIR}/scripts/agent-forge-bridge.sh:*)`,
     ]
 
 if (fs.existsSync(SETTINGS_FILE)) {

@@ -5,11 +5,11 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, EnsembleMessage } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage } from '../types'
 
 interface StatsOverlayProps {
-  team: EnsembleTeam
-  messages: EnsembleMessage[]
+  team: AgentForgeTeam
+  messages: AgentForgeMessage[]
   spectatorCount?: number
 }
 
@@ -22,7 +22,7 @@ function formatElapsed(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-function calcMsgPerMin(messages: EnsembleMessage[]): number {
+function calcMsgPerMin(messages: AgentForgeMessage[]): number {
   if (messages.length < 2) return 0
   const now = Date.now()
   const windowMs = 60_000

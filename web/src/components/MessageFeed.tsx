@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { MessageCircle, ArrowDown, ArrowRight } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleMessage, EnsembleTeamAgent, RemoteParticipant } from '../types'
+import type { AgentForgeMessage, AgentForgeTeamAgent, RemoteParticipant } from '../types'
 import { AgentBadge } from './AgentBadge'
 
 function TypingDots() {
@@ -15,8 +15,8 @@ function TypingDots() {
 }
 
 interface MessageFeedProps {
-  messages: EnsembleMessage[]
-  agents: EnsembleTeamAgent[]
+  messages: AgentForgeMessage[]
+  agents: AgentForgeTeamAgent[]
   participants?: RemoteParticipant[]
   readOnly?: boolean
   /** List of participant IDs / agent names currently typing */
@@ -130,14 +130,14 @@ function renderContent(content: string): React.ReactNode {
 
 /* ── Helpers ───────────────────────────────────────────────────── */
 
-function getAgentForName(name: string, agents: EnsembleTeamAgent[]): EnsembleTeamAgent | undefined {
+function getAgentForName(name: string, agents: AgentForgeTeamAgent[]): AgentForgeTeamAgent | undefined {
   // Try exact match first, then suffix match (message `from` may include team name prefix)
   return agents.find(a => a.name === name || a.agentId === name)
     || agents.find(a => name.endsWith(a.name) || name.endsWith(`-${a.name}`))
 }
 
 /** Extract short display name — strip team name prefix (e.g. "1774238417709-codex-1" → "codex-1") */
-function shortAgentName(from: string, agents: EnsembleTeamAgent[]): string {
+function shortAgentName(from: string, agents: AgentForgeTeamAgent[]): string {
   const agent = getAgentForName(from, agents)
   if (agent) return agent.name
   // Fallback: try to extract the suffix after the team timestamp prefix
@@ -231,7 +231,7 @@ export function MessageFeed({ messages, agents, participants = [], readOnly = fa
       >
         {messages.map((msg, i) => {
           const { grouped, showDaySeparator } = groupingMeta[i]
-          const isSystem = msg.from === 'ensemble' || msg.from === 'system'
+          const isSystem = msg.from === 'agent-forge' || msg.from === 'system'
           const isUser = msg.from === 'user'
           const agent = getAgentForName(msg.from, agents)
 

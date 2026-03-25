@@ -1,17 +1,17 @@
-title: Ensemble
+title: AgentForge
 description: Multi-agent collaboration engine — AI agents that work as one
 remote_theme: just-the-docs/just-the-docs@v0.10.0
 plugins:
   - jekyll-remote-theme
 
-baseurl: /ensemble
+baseurl: /agent-forge
 url: https://michelhelsdingen.github.io
 
 color_scheme: light
 
 aux_links:
   "View on GitHub":
-    - "https://github.com/michelhelsdingen/ensemble"
+    - "https://github.com/michelhelsdingen/agent-forge"
 
 aux_links_new_tab: true
 

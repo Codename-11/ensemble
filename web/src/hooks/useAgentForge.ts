@@ -1,20 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { EnsembleTeam, EnsembleMessage } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage } from '../types'
 
 const POLL_INTERVAL_MS = 2000
 
-interface UseEnsembleReturn {
-  team: EnsembleTeam | null
-  messages: EnsembleMessage[]
+interface UseAgentForgeReturn {
+  team: AgentForgeTeam | null
+  messages: AgentForgeMessage[]
   connected: boolean
   error: string | null
   sendMessage: (content: string, to?: string) => Promise<void>
   disbandTeam: () => Promise<void>
 }
 
-export function useEnsemble(teamId: string | null): UseEnsembleReturn {
-  const [team, setTeam] = useState<EnsembleTeam | null>(null)
-  const [messages, setMessages] = useState<EnsembleMessage[]>([])
+export function useAgentForge(teamId: string | null): UseAgentForgeReturn {
+  const [team, setTeam] = useState<AgentForgeTeam | null>(null)
+  const [messages, setMessages] = useState<AgentForgeMessage[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const lastMessageTimestamp = useRef<string | undefined>(undefined)
@@ -54,7 +54,7 @@ export function useEnsemble(teamId: string | null): UseEnsembleReturn {
       const res = await fetch(`/api/agent-forge/teams/${teamId}/feed${params}`)
       if (!res.ok) return
       const data = await res.json()
-      const feedMessages: EnsembleMessage[] = data.messages ?? data
+      const feedMessages: AgentForgeMessage[] = data.messages ?? data
       if (feedMessages.length > 0) {
         lastMessageTimestamp.current = feedMessages[feedMessages.length - 1].timestamp
         setMessages(prev => {

@@ -13,8 +13,8 @@ import os from 'os'
 import path from 'path'
 import readline from 'readline'
 import { resolveAgentProgram } from '../lib/agent-config'
-import { EnsembleClient } from '../lib/ensemble-client'
-import type { EnsembleTeam, EnsembleMessage } from '../lib/ensemble-client'
+import { AgentForgeClient } from '../lib/agent-forge-client'
+import type { AgentForgeTeam, AgentForgeMessage } from '../lib/agent-forge-client'
 
 // ─────────────────────────── ANSI ESCAPE CODES ───────────────────────────
 
@@ -81,7 +81,7 @@ interface AgentStyle {
 }
 
 const agentStyles: Record<string, AgentStyle> = {
-  ensemble: { badge: `${color.bgGray}${color.brightWhite}`, text: color.gray, icon: '⚙' },
+  'agent-forge': { badge: `${color.bgGray}${color.brightWhite}`, text: color.gray, icon: '⚙' },
   user: { badge: `${color.bgCyan}${color.black}`, text: color.brightCyan, icon: '▸' },
 }
 
@@ -94,7 +94,7 @@ const programColorStyles: Record<string, Omit<AgentStyle, 'icon'>> = {
 }
 
 function getAgentStyle(name: string): AgentStyle {
-  if (name === 'ensemble' || name === 'user') return agentStyles[name]
+  if (name === 'agent-forge' || name === 'user') return agentStyles[name]
 
   const program = resolveAgentProgram(name)
   const style = programColorStyles[program.color] || programColorStyles.white
@@ -108,9 +108,9 @@ const API_BASE = process.env.AGENT_FORGE_URL || 'http://localhost:23000'
 // ─────────────────────────── TUI RENDERER ────────────────────────────────
 
 class Monitor {
-  private readonly client: EnsembleClient
-  private team: EnsembleTeam | null = null
-  private messages: EnsembleMessage[] = []
+  private readonly client: AgentForgeClient
+  private team: AgentForgeTeam | null = null
+  private messages: AgentForgeMessage[] = []
   private lastMessageCount = 0
   private scrollOffset = 0
   private inputMode = false
@@ -142,7 +142,7 @@ class Monitor {
   ]
 
   constructor(private teamId: string) {
-    this.client = new EnsembleClient(teamId)
+    this.client = new AgentForgeClient(teamId)
   }
 
   async start() {
@@ -168,11 +168,11 @@ class Monitor {
     this.render()
 
     // Subscribe to client events
-    this.client.on('team', (team: EnsembleTeam) => {
+    this.client.on('team', (team: AgentForgeTeam) => {
       this.team = team
     })
 
-    this.client.on('messages', (messages: EnsembleMessage[], _newCount: number) => {
+    this.client.on('messages', (messages: AgentForgeMessage[], _newCount: number) => {
       this.messages = messages
 
       // Clear transient connection states on success
@@ -411,15 +411,15 @@ class Monitor {
       this.messages = this.client.getMessages()
 
       // Save summary to file — the main Claude session will present it
-      const agentMsgs = this.messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
+      const agentMsgs = this.messages.filter(m => m.from !== 'agent-forge' && m.from !== 'user')
       const agents = [...new Set(agentMsgs.map(m => m.from))]
       const duration = this.formatDuration(Date.now() - this.startTime)
 
       const summaryFile = path.join(os.tmpdir(), `collab-summary-${this.teamId}.txt`)
       const summaryText = agents.map(agent => {
         const msgs = agentMsgs.filter(m => m.from === agent)
-        const first = msgs[0]?.content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim() || ''
-        const last = msgs[msgs.length - 1]?.content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim() || ''
+        const first = msgs[0]?.content.replace(/(?:\/tmp\/agent-forge|[A-Z]:\\[^"'\s]*\\Temp\\agent-forge)[-\w\\]*/gi, '').trim() || ''
+        const last = msgs[msgs.length - 1]?.content.replace(/(?:\/tmp\/agent-forge|[A-Z]:\\[^"'\s]*\\Temp\\agent-forge)[-\w\\]*/gi, '').trim() || ''
         return `${agent} (${msgs.length} msgs):\n  Start: ${first.slice(0, 300)}\n  End: ${last.slice(0, 500)}`
       }).join('\n\n')
 
@@ -433,7 +433,7 @@ class Monitor {
   }
 
   private getLastAgentMessageTime(): number {
-    const agentMsgs = this.messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
+    const agentMsgs = this.messages.filter(m => m.from !== 'agent-forge' && m.from !== 'user')
     if (agentMsgs.length === 0) return 0
     const last = agentMsgs[agentMsgs.length - 1]
     return new Date(last.timestamp).getTime()
@@ -531,7 +531,7 @@ class Monitor {
       : color.yellow
 
     const elapsed = this.formatDuration(Date.now() - this.startTime)
-    const msgCount = `${this.messages.filter(m => m.from !== 'ensemble').length} msgs`
+    const msgCount = `${this.messages.filter(m => m.from !== 'agent-forge').length} msgs`
     const rightInfo = ` ${elapsed} │ ${msgCount} `
 
     const titleLen = this.stripAnsi(title).length
@@ -589,7 +589,7 @@ class Monitor {
   /** Shared helper: render all visible messages into terminal lines.
    *  Both renderMessages() and scroll-bound calculation use this so they can never diverge. */
   private getRenderedLines(w: number): string[] {
-    const agentMessages = this.messages.filter(m => m.from !== 'ensemble' || m.content.includes('❌'))
+    const agentMessages = this.messages.filter(m => m.from !== 'agent-forge' || m.content.includes('❌'))
     const totalRendered: string[] = []
     for (const msg of agentMessages) {
       totalRendered.push(...this.renderMessage(msg, w))
@@ -616,7 +616,7 @@ class Monitor {
     return lines.join('')
   }
 
-  private renderMessage(msg: EnsembleMessage, w: number): string[] {
+  private renderMessage(msg: AgentForgeMessage, w: number): string[] {
     const lines: string[] = []
     const style = getAgentStyle(msg.from)
     const time = new Date(msg.timestamp).toLocaleTimeString(undefined, {
@@ -633,7 +633,7 @@ class Monitor {
     // Clean and structure content for terminal display
     const contentWidth = w - 8
     const raw = msg.content
-      .replace(/\s*\/tmp\/ensemble[-\w]*\s*/g, '')  // strip leaked path
+      .replace(/\s*\/tmp\/agent-forge[-\w]*\s*/g, '')  // strip leaked path
       .trim()
 
     // Parse into structured blocks
@@ -861,7 +861,7 @@ class Monitor {
     )
     lines.push(`${color.gray}${'─'.repeat(w)}${color.reset}\n`)
 
-    const agentMsgs = this.messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
+    const agentMsgs = this.messages.filter(m => m.from !== 'agent-forge' && m.from !== 'user')
     const agents = [...new Set(agentMsgs.map(m => m.from))]
     const duration = this.formatDuration(Date.now() - this.startTime)
 
@@ -887,12 +887,12 @@ class Monitor {
       )
 
       if (msgs.length > 0) {
-        const first = msgs[0].content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
+        const first = msgs[0].content.replace(/(?:\/tmp\/agent-forge|[A-Z]:\\[^"'\s]*\\Temp\\agent-forge)[-\w\\]*/gi, '').trim()
         const firstTrunc = first.slice(0, w - 14) + (first.length > w - 14 ? '...' : '')
         lines.push(`  ${color.dim}Start:${color.reset} ${style.text}${firstTrunc}${color.reset}\n`)
       }
       if (msgs.length > 1) {
-        const last = msgs[msgs.length - 1].content.replace(/(?:\/tmp\/ensemble|[A-Z]:\\[^"'\s]*\\Temp\\ensemble)[-\w\\]*/gi, '').trim()
+        const last = msgs[msgs.length - 1].content.replace(/(?:\/tmp\/agent-forge|[A-Z]:\\[^"'\s]*\\Temp\\agent-forge)[-\w\\]*/gi, '').trim()
         const lastTrunc = last.slice(0, w - 14) + (last.length > w - 14 ? '...' : '')
         lines.push(`  ${color.dim}End:${color.reset}   ${style.text}${lastTrunc}${color.reset}\n`)
       }
@@ -1026,7 +1026,7 @@ class Monitor {
 
 async function pickTeam(): Promise<string> {
   try {
-    const allTeams = await EnsembleClient.fetchTeams()
+    const allTeams = await AgentForgeClient.fetchTeams()
     const teams = allTeams.filter(t => t.status === 'active' || t.status === 'forming')
 
     if (teams.length === 0) {
@@ -1087,7 +1087,7 @@ async function main() {
   let teamId: string
 
   if (args[0] === '--latest' || args[0] === '-l') {
-    const latestId = await EnsembleClient.resolveLatestTeamId()
+    const latestId = await AgentForgeClient.resolveLatestTeamId()
     if (!latestId) {
       console.log(`${color.yellow}No active teams.${color.reset}`)
       process.exit(1)

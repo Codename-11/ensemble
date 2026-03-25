@@ -8,7 +8,7 @@ import {
   Play, Pause, SkipBack, Share2, ArrowLeft, Loader2, CheckCircle2,
 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeam, EnsembleMessage } from '../types'
+import type { AgentForgeTeam, AgentForgeMessage } from '../types'
 import { MessageFeed } from './MessageFeed'
 import { AgentBadge } from './AgentBadge'
 
@@ -21,9 +21,9 @@ const SPEEDS = [1, 2, 5] as const
 type Speed = typeof SPEEDS[number]
 
 export function ReplayView({ teamId, onBack }: ReplayViewProps) {
-  const [team, setTeam] = useState<EnsembleTeam | null>(null)
-  const [allMessages, setAllMessages] = useState<EnsembleMessage[]>([])
-  const [visibleMessages, setVisibleMessages] = useState<EnsembleMessage[]>([])
+  const [team, setTeam] = useState<AgentForgeTeam | null>(null)
+  const [allMessages, setAllMessages] = useState<AgentForgeMessage[]>([])
+  const [visibleMessages, setVisibleMessages] = useState<AgentForgeMessage[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 

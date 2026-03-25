@@ -1,6 +1,6 @@
 /**
  * Collab Path Resolver — Shared path contract for multi-collab isolation.
- * All runtime files live under <os.tmpdir()>/ensemble/<teamId>/.
+ * All runtime files live under <os.tmpdir()>/agent-forge/<teamId>/.
  * Shell equivalent: scripts/collab-paths.sh (must stay in sync).
  */
 

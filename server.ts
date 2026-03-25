@@ -10,15 +10,15 @@ import { fileURLToPath } from 'url'
 import http from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import {
-  createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
+  createAgentForgeTeam, getAgentForgeTeam, listAgentForgeTeams,
   getTeamFeed, sendTeamMessage, disbandTeam, deleteTeamPermanently, reopenTeam,
   addAgentToTeam, cloneTeam, exportTeam, executeTeam, listCollabTemplates,
   joinTeam, sendRemoteMessage, leaveTeam, kickParticipant,
   updateTeamVisibility, generateShareLink, getLobbyTeams,
   validateSessionToken, setSpectatorCountFn,
-} from './services/ensemble-service'
-import { getTeam, updateTeam } from './lib/ensemble-registry'
-import type { TeamConfig } from './types/ensemble'
+} from './services/agent-forge-service'
+import { getTeam, updateTeam } from './lib/agent-forge-registry'
+import type { TeamConfig } from './types/agent-forge'
 import { getRuntime } from './lib/agent-runtime'
 import { color, styledHeader, styledLog, styledStatus } from './lib/cli-style'
 import {
@@ -221,6 +221,27 @@ function requireAuth(req: http.IncomingMessage, res: http.ServerResponse, origin
     return false
   }
   return true
+}
+
+function requireAdmin(req: http.IncomingMessage, res: http.ServerResponse, origin?: string): boolean {
+  const user = getAuthUser(req)
+  if (!user) {
+    json(res, { error: 'Authentication required' }, 401, origin)
+    return false
+  }
+  if (user.role !== 'admin') {
+    json(res, { error: 'Admin role required' }, 403, origin)
+    return false
+  }
+  return true
+}
+
+function routeMatches(path: string, route: string): boolean {
+  return path === `/api/agent-forge${route}`
+}
+
+function routeMatch(path: string, routePattern: RegExp): RegExpMatchArray | null {
+  return path.match(new RegExp(`^/api/agent-forge${routePattern.source}`))
 }
 
 async function readBody(req: http.IncomingMessage): Promise<string> {
@@ -445,7 +466,7 @@ const server = http.createServer(async (req, res) => {
       // (workingDirectory isn't stored on the team object, but descriptions often reference paths)
       const recentDirs: string[] = []
 
-      const mcpServerPath = nodePath.resolve(__dirname, 'mcp', 'ensemble-mcp-server.mjs')
+      const mcpServerPath = nodePath.resolve(__dirname, 'mcp', 'agent-forge-mcp-server.mjs')
 
       // Scan AGENT_FORGE_PROJECTS_DIR for project subdirectories
       const projectDirectories: Array<{ name: string; path: string }> = []
@@ -487,11 +508,11 @@ const server = http.createServer(async (req, res) => {
     // -----------------------------------------------------------------------
 
     // GET /api/agent-forge/config — return current server configuration
-    if (path === '/api/agent-forge/config' && method === 'GET') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/config') && method === 'GET') {
+      if (!requireAdmin(req, res, origin)) return
 
       const { loadAgentsConfig: loadAgents } = await import('./lib/agent-config')
-      const { getEnsembleDataDir } = await import('./lib/ensemble-paths')
+      const { getAgentForgeDataDir } = await import('./lib/agent-forge-paths')
       const { getCollabRuntimeRoot } = await import('./lib/collab-paths')
       const { DEFAULT_NUDGE_MS, DEFAULT_STALL_MS, DEFAULT_POLL_INTERVAL_MS } = await import('./lib/agent-watchdog')
       const agentsConfig = loadAgents()
@@ -512,7 +533,7 @@ const server = http.createServer(async (req, res) => {
           singleSignalIdleMs: 120_000,
         },
         agents: agentsConfig,
-        dataDir: getEnsembleDataDir(),
+        dataDir: getAgentForgeDataDir(),
         runtimeDir: getCollabRuntimeRoot(),
         about: {
           version: '1.0.0',
@@ -524,8 +545,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     // PATCH /api/agent-forge/config — update runtime-modifiable settings
-    if (path === '/api/agent-forge/config' && method === 'PATCH') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/config') && method === 'PATCH') {
+      if (!requireAdmin(req, res, origin)) return
 
       let body: Record<string, unknown>
       try {
@@ -588,9 +609,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // List teams / Create team
-    if (path === '/api/agent-forge/teams') {
+    if (routeMatches(path, '/teams')) {
       if (method === 'GET') {
-        const result = listEnsembleTeams()
+        const result = listAgentForgeTeams()
         return json(res, result.data, result.status, origin)
       }
       if (method === 'POST') {
@@ -602,14 +623,14 @@ const server = http.createServer(async (req, res) => {
         } catch {
           return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
         }
-        const result = await createEnsembleTeam(body as Parameters<typeof createEnsembleTeam>[0])
+        const result = await createAgentForgeTeam(body as Parameters<typeof createAgentForgeTeam>[0])
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
       }
     }
 
     // ── Lobby: GET /api/agent-forge/lobby ──────────────────────────────
-    if (path === '/api/agent-forge/lobby' && method === 'GET') {
+    if (routeMatches(path, '/lobby') && method === 'GET') {
       const tag = url.searchParams.get('tag') || undefined
       const status = url.searchParams.get('status') || undefined
       const limit = parseInt(url.searchParams.get('limit') || '50', 10)
@@ -625,7 +646,7 @@ const server = http.createServer(async (req, res) => {
     // ── Open Participation sub-routes (must match before teamMatch) ──
 
     // POST /api/agent-forge/teams/:id/join
-    const joinMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/join$/)
+    const joinMatch = routeMatch(path, /\/teams\/([^/]+)\/join$/)
     if (joinMatch && method === 'POST') {
       const teamId = joinMatch[1]
       if (isJoinRateLimited(teamId)) {
@@ -640,7 +661,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /api/agent-forge/teams/:id/messages (remote participant send)
-    const remoteMessageMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/messages$/)
+    const remoteMessageMatch = routeMatch(path, /\/teams\/([^/]+)\/messages$/)
     if (remoteMessageMatch && method === 'POST') {
       const teamId = remoteMessageMatch[1]
       const authHeader = req.headers.authorization
@@ -664,7 +685,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /api/agent-forge/teams/:id/leave
-    const leaveMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/leave$/)
+    const leaveMatch = routeMatch(path, /\/teams\/([^/]+)\/leave$/)
     if (leaveMatch && method === 'POST') {
       const teamId = leaveMatch[1]
       const authHeader = req.headers.authorization
@@ -682,8 +703,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // DELETE /api/agent-forge/teams/:id/participants/:pid (kick)
-    const kickMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/participants\/([^/]+)$/)
+    const kickMatch = routeMatch(path, /\/teams\/([^/]+)\/participants\/([^/]+)$/)
     if (kickMatch && method === 'DELETE') {
+      if (!requireAuth(req, res, origin)) return
       const [, teamId, participantId] = kickMatch
       const result = kickParticipant(teamId, participantId)
       if (result.error) return json(res, { error: result.error }, result.status, origin)
@@ -691,8 +713,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /api/agent-forge/teams/:id/share
-    const shareMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/share$/)
+    const shareMatch = routeMatch(path, /\/teams\/([^/]+)\/share$/)
     if (shareMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       const teamId = shareMatch[1]
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty ok */ }
@@ -703,7 +726,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // GET /api/agent-forge/teams/:id/spectate (SSE, no auth for public; token for shared)
-    const spectateMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/spectate$/)
+    const spectateMatch = routeMatch(path, /\/teams\/([^/]+)\/spectate$/)
     if (spectateMatch && method === 'GET') {
       const teamId = spectateMatch[1]
       const team = getTeam(teamId)
@@ -728,7 +751,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, sseHeaders)
 
       // Send init
-      const teamResult = getEnsembleTeam(teamId)
+      const teamResult = getAgentForgeTeam(teamId)
       const initData = teamResult.data
       const safeInitParticipants = (initData?.team.participants ?? []).map((p: any) => {
         const { tokenHash, ...safe } = p
@@ -765,7 +788,7 @@ const server = http.createServer(async (req, res) => {
           const currentTeam = getTeam(teamId)
           if (currentTeam) {
             const spectatorCount = [...activeSpectatorConnections].filter(c => c.teamId === teamId).length
-            const allMsgs = getEnsembleTeam(teamId).data?.messages ?? []
+            const allMsgs = getAgentForgeTeam(teamId).data?.messages ?? []
             const elapsedMs = Date.now() - new Date(currentTeam.createdAt).getTime()
             res.write(`event: stats\ndata: ${JSON.stringify({
               spectator_count: spectatorCount,
@@ -793,7 +816,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // POST /api/agent-forge/teams/:id/typing — broadcast typing indicator
-    const typingMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/typing$/)
+    const typingMatch = routeMatch(path, /\/teams\/([^/]+)\/typing$/)
     if (typingMatch && method === 'POST') {
       const teamId = typingMatch[1]
       const team = getTeam(teamId)
@@ -815,10 +838,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     // GET /api/agent-forge/teams/:id/replay — full history for disbanded teams
-    const replayMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/replay$/)
+    const replayMatch = routeMatch(path, /\/teams\/([^/]+)\/replay$/)
     if (replayMatch && method === 'GET') {
       const teamId = replayMatch[1]
-      const teamResult = getEnsembleTeam(teamId)
+      const teamResult = getAgentForgeTeam(teamId)
       if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
       const teamData = teamResult.data!
       return json(res, {
@@ -829,16 +852,18 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Team operations: /api/agent-forge/teams/:id
-    const teamMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)$/)
+    const teamMatch = routeMatch(path, /\/teams\/([^/]+)$/)
     if (teamMatch) {
       const teamId = teamMatch[1]
       if (method === 'GET') {
-        const result = getEnsembleTeam(teamId)
+        const result = getAgentForgeTeam(teamId)
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         const safeData = result.data ? { ...result.data, team: stripSensitiveFields({ ...result.data.team }) } : result.data
         return json(res, safeData, result.status, origin)
       }
       if (method === 'POST') {
+        if (!requireAuth(req, res, origin)) return
+
         let body: Record<string, unknown>
         try {
           body = JSON.parse(await readBody(req))
@@ -850,6 +875,8 @@ const server = http.createServer(async (req, res) => {
         return json(res, result.data, result.status, origin)
       }
       if (method === 'PATCH') {
+        if (!requireAuth(req, res, origin)) return
+
         let body: Record<string, unknown>
         try {
           body = JSON.parse(await readBody(req))
@@ -886,8 +913,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Add agent to team: POST /api/agent-forge/teams/:id/agents
-    const addAgentMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/agents$/)
+    const addAgentMatch = routeMatch(path, /\/teams\/([^/]+)\/agents$/)
     if (addAgentMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       let body: Record<string, unknown>
       try {
         body = JSON.parse(await readBody(req))
@@ -905,7 +933,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Update team config: PATCH /api/agent-forge/teams/:id/config
-    const configMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/config$/)
+    const configMatch = routeMatch(path, /\/teams\/([^/]+)\/config$/)
     if (configMatch && method === 'PATCH') {
       if (!requireAuth(req, res, origin)) return
 
@@ -940,8 +968,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Clone/restart team: POST /api/agent-forge/teams/:id/clone
-    const cloneMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/clone$/)
+    const cloneMatch = routeMatch(path, /\/teams\/([^/]+)\/clone$/)
     if (cloneMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
       const result = await cloneTeam(cloneMatch[1], {
@@ -953,8 +982,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Export team output: POST /api/agent-forge/teams/:id/export
-    const exportMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/export$/)
+    const exportMatch = routeMatch(path, /\/teams\/([^/]+)\/export$/)
     if (exportMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
       const format = (typeof body.format === 'string' ? body.format : 'prompt') as 'prompt' | 'json' | 'markdown'
@@ -967,8 +997,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Execute team plan: POST /api/agent-forge/teams/:id/execute
-    const executeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/execute$/)
+    const executeMatch = routeMatch(path, /\/teams\/([^/]+)\/execute$/)
     if (executeMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
       const agents = Array.isArray(body.agents)
@@ -983,8 +1014,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Plan step update: PATCH /api/agent-forge/teams/:id/plan/:stepId
-    const planStepMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/plan\/([^/]+)$/)
+    const planStepMatch = routeMatch(path, /\/teams\/([^/]+)\/plan\/([^/]+)$/)
     if (planStepMatch && method === 'PATCH') {
+      if (!requireAuth(req, res, origin)) return
       const teamId = planStepMatch[1]
       const stepId = planStepMatch[2]
 
@@ -1000,7 +1032,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, { error: 'Bad Request: "status" must be one of: pending, in-progress, done, skipped' }, 400, origin)
       }
 
-      const teamResult = getEnsembleTeam(teamId)
+      const teamResult = getAgentForgeTeam(teamId)
       if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
 
       const team = teamResult.data!.team
@@ -1027,7 +1059,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // Disband: /api/agent-forge/teams/:id/disband
-    const disbandMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
+    const disbandMatch = routeMatch(path, /\/teams\/([^/]+)\/disband$/)
     if (disbandMatch && method === 'POST') {
       if (!requireAuth(req, res, origin)) return
 
@@ -1044,21 +1076,22 @@ const server = http.createServer(async (req, res) => {
     // Summarize team with AI agent: POST /api/agent-forge/teams/:id/summarize
     // Spawns a temporary agent session, sends the summarize prompt, captures output.
     // Works with any backend agent (claude, codex, gemini, etc.) — no API key needed.
-    const summarizeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/summarize$/)
+    const summarizeMatch = routeMatch(path, /\/teams\/([^/]+)\/summarize$/)
     if (summarizeMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       let body: Record<string, unknown> = {}
       try { body = JSON.parse(await readBody(req)) } catch { /* empty body OK */ }
 
       const agentProgram = (typeof body.agent === 'string' && body.agent) || 'claude'
 
-      const teamResult = getEnsembleTeam(summarizeMatch[1])
+      const teamResult = getAgentForgeTeam(summarizeMatch[1])
       if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
 
       const team = teamResult.data!.team
       const allMessages = teamResult.data!.messages
 
       // Build summary prompt
-      const agentMessages = allMessages.filter(m => m.from !== 'ensemble')
+      const agentMessages = allMessages.filter(m => m.from !== 'agent-forge')
       const createdAt = new Date(team.createdAt).getTime()
       const endTime = team.completedAt ? new Date(team.completedAt).getTime() : Date.now()
       const durationMs = endTime - createdAt
@@ -1189,15 +1222,16 @@ ${formattedMessages}`
     }
 
     // Reopen team: POST /api/agent-forge/teams/:id/reopen
-    const reopenMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/reopen$/)
+    const reopenMatch = routeMatch(path, /\/teams\/([^/]+)\/reopen$/)
     if (reopenMatch && method === 'POST') {
+      if (!requireAuth(req, res, origin)) return
       const result = await reopenTeam(reopenMatch[1])
       if (result.error) return json(res, { error: result.error }, result.status, origin)
       return json(res, result.data, result.status, origin)
     }
 
     // Permanent delete: DELETE /api/agent-forge/teams/:id/purge
-    const purgeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
+    const purgeMatch = routeMatch(path, /\/teams\/([^/]+)\/purge$/)
     if (purgeMatch && method === 'DELETE') {
       if (!requireAuth(req, res, origin)) return
 
@@ -1207,7 +1241,7 @@ ${formattedMessages}`
     }
 
     // Feed: /api/agent-forge/teams/:id/feed
-    const feedMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)
+    const feedMatch = routeMatch(path, /\/teams\/([^/]+)\/feed$/)
     if (feedMatch && method === 'GET') {
       const since = url.searchParams.get('since') || undefined
       const result = getTeamFeed(feedMatch[1], since)
@@ -1216,12 +1250,12 @@ ${formattedMessages}`
     }
 
     // SSE stream: /api/agent-forge/teams/:id/stream
-    const streamMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/stream$/)
+    const streamMatch = routeMatch(path, /\/teams\/([^/]+)\/stream$/)
     if (streamMatch && method === 'GET') {
       const teamId = streamMatch[1]
 
       // Validate team exists before opening the stream
-      const teamResult = getEnsembleTeam(teamId)
+      const teamResult = getAgentForgeTeam(teamId)
       if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
 
       // Build SSE headers, starting from CORS headers
@@ -1276,7 +1310,7 @@ ${formattedMessages}`
           const currentTeam = getTeam(teamId)
           if (currentTeam) {
             const spectatorCount = [...activeSpectatorConnections].filter(c => c.teamId === teamId).length
-            const allMsgs = getEnsembleTeam(teamId).data?.messages ?? []
+            const allMsgs = getAgentForgeTeam(teamId).data?.messages ?? []
             const elapsedMs = Date.now() - new Date(currentTeam.createdAt).getTime()
             res.write(`event: stats\ndata: ${JSON.stringify({
               spectator_count: spectatorCount,
@@ -1287,7 +1321,7 @@ ${formattedMessages}`
         }
 
         // Check if team has been disbanded
-        const currentTeam = getEnsembleTeam(teamId)
+        const currentTeam = getAgentForgeTeam(teamId)
         if (currentTeam.data?.team.status === 'disbanded') {
           res.write(`event: disbanded\ndata: ${JSON.stringify({ team: currentTeam.data.team })}\n\n`)
           res.end()
@@ -1308,7 +1342,7 @@ ${formattedMessages}`
     }
 
     // SSE stream test page: /api/agent-forge/teams/:id/stream/test
-    const streamTestMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/stream\/test$/)
+    const streamTestMatch = routeMatch(path, /\/teams\/([^/]+)\/stream\/test$/)
     if (streamTestMatch && method === 'GET') {
       const teamId = streamTestMatch[1]
       const html = `<!DOCTYPE html>
@@ -1339,7 +1373,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     // -----------------------------------------------------------------------
 
     // List all active sessions: GET /api/agent-forge/sessions
-    if (path === '/api/agent-forge/sessions' && method === 'GET') {
+    if (routeMatches(path, '/sessions') && method === 'GET') {
       if (!requireAuth(req, res, origin)) return
 
       const runtime = getRuntime()
@@ -1354,7 +1388,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // Session output: GET /api/agent-forge/sessions/:name/output
-    const sessionOutputMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/output$/)
+    const sessionOutputMatch = routeMatch(path, /\/sessions\/([^/]+)\/output$/)
     if (sessionOutputMatch && method === 'GET') {
       if (!requireAuth(req, res, origin)) return
 
@@ -1376,7 +1410,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // Session input: POST /api/agent-forge/sessions/:name/input
-    const sessionInputMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/input$/)
+    const sessionInputMatch = routeMatch(path, /\/sessions\/([^/]+)\/input$/)
     if (sessionInputMatch && method === 'POST') {
       if (!requireAuth(req, res, origin)) return
 
@@ -1411,7 +1445,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // Session stream (SSE): GET /api/agent-forge/sessions/:name/stream
-    const sessionStreamMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/stream$/)
+    const sessionStreamMatch = routeMatch(path, /\/sessions\/([^/]+)\/stream$/)
     if (sessionStreamMatch && method === 'GET') {
       if (!requireAuth(req, res, origin)) return
 
@@ -1491,8 +1525,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     // -----------------------------------------------------------------------
 
     // GET /api/agent-forge/deploy/status — current deployment info
-    if (path === '/api/agent-forge/deploy/status' && method === 'GET') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/status') && method === 'GET') {
+      if (!requireAdmin(req, res, origin)) return
 
       const { execSync: execSyncCmd } = await import('child_process')
       const projectRoot = __dirname
@@ -1545,8 +1579,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // POST /api/agent-forge/deploy/check — fetch and return diff info
-    if (path === '/api/agent-forge/deploy/check' && method === 'POST') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/check') && method === 'POST') {
+      if (!requireAdmin(req, res, origin)) return
 
       const { execSync: execSyncCmd } = await import('child_process')
       const projectRoot = __dirname
@@ -1598,8 +1632,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
 
     // GET /api/agent-forge/deploy/run — execute full deploy with SSE streaming
     // Uses GET so EventSource can connect directly from the browser
-    if (path === '/api/agent-forge/deploy/run' && (method === 'GET' || method === 'POST')) {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/run') && (method === 'GET' || method === 'POST')) {
+      if (!requireAdmin(req, res, origin)) return
 
       const { spawn: spawnDeploy } = await import('child_process')
       const projectRoot = __dirname
@@ -1671,7 +1705,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
       })
 
       // --- Deploy history logging helpers ---
-      const { getEnsembleDataDir: getDataDir } = await import('./lib/ensemble-paths')
+      const { getAgentForgeDataDir: getDataDir } = await import('./lib/agent-forge-paths')
       const historyPath = nodePath.join(getDataDir(), 'deploy-history.json')
 
       function readDeployHistory(): Array<Record<string, unknown>> {
@@ -1769,10 +1803,10 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // GET /api/agent-forge/deploy/history — past deploy history
-    if (path === '/api/agent-forge/deploy/history' && method === 'GET') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/history') && method === 'GET') {
+      if (!requireAdmin(req, res, origin)) return
 
-      const { getEnsembleDataDir: getDataDirHist } = await import('./lib/ensemble-paths')
+      const { getAgentForgeDataDir: getDataDirHist } = await import('./lib/agent-forge-paths')
       const historyFilePath = nodePath.join(getDataDirHist(), 'deploy-history.json')
 
       let entries: Array<Record<string, unknown>> = []
@@ -1787,8 +1821,8 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // POST /api/agent-forge/deploy/rollback — rollback to a specific commit
-    if (path === '/api/agent-forge/deploy/rollback' && method === 'POST') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/rollback') && method === 'POST') {
+      if (!requireAdmin(req, res, origin)) return
 
       const { execSync: execSyncRb } = await import('child_process')
       const projectRoot = __dirname
@@ -1830,14 +1864,14 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
         if (!isWindows) {
           rollbackSteps.push('Restarting service...')
           try {
-            execSyncRb('systemctl --user restart openclaw-ensemble', { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' })
+            execSyncRb('systemctl --user restart openclaw-agent-forge', { cwd: projectRoot, encoding: 'utf-8', stdio: 'pipe' })
           } catch { rollbackSteps.push('Service restart skipped (not available)') }
         } else {
           rollbackSteps.push('Skipping service restart (Windows)')
         }
 
         // Log rollback to deploy history
-        const { getEnsembleDataDir: getDataDirRb } = await import('./lib/ensemble-paths')
+        const { getAgentForgeDataDir: getDataDirRb } = await import('./lib/agent-forge-paths')
         const rbHistoryPath = nodePath.join(getDataDirRb(), 'deploy-history.json')
         let rbHistory: Array<Record<string, unknown>> = []
         try {
@@ -1877,12 +1911,16 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
     }
 
     // POST /api/agent-forge/deploy/webhook — placeholder for GitHub webhook integration
-    if (path === '/api/agent-forge/deploy/webhook' && method === 'POST') {
-      if (!requireAuth(req, res, origin)) return
+    if (routeMatches(path, '/deploy/webhook') && method === 'POST') {
+      if (!requireAdmin(req, res, origin)) return
 
       res.writeHead(501, buildCorsHeaders(origin))
       res.end(JSON.stringify({ error: 'Not implemented yet — GitHub webhook integration is planned for a future release.' }))
       return
+    }
+
+    if (path.startsWith('/api/')) {
+      return json(res, { error: 'Not found' }, 404, origin)
     }
 
     // Serve static SPA files in production
@@ -1946,7 +1984,7 @@ const wss = new WebSocketServer({ noServer: true })
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url || '/', `http://localhost:${PORT}`)
-  const match = url.pathname.match(/^\/api\/ensemble\/sessions\/([^/]+)\/ws$/)
+  const match = url.pathname.match(/^\/api\/agent-forge\/sessions\/([^/]+)\/ws$/)
 
   if (!match) {
     socket.destroy()

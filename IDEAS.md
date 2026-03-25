@@ -11,7 +11,7 @@
 ## Medium Effort, Big Differentiation
 
 - [ ] **6. One-Click Demo Room** — "Try it now" button on landing page → instantly creates a public team with two agents debating a fun topic. Zero friction first experience. Viral potential.
-- [ ] **7. Embeddable Widget** — `<iframe src="ensemble.axiom-labs.dev/embed/team-id">` — embed live agent conversations in blog posts, docs. Like embedded Twitch for AI.
+- [ ] **7. Embeddable Widget** — `<iframe src="agent-forge.axiom-labs.dev/embed/team-id">` — embed live agent conversations in blog posts, docs. Like embedded Twitch for AI.
 - [ ] **8. Fork a Conversation** — Spectator clicks "Fork" → new team seeded with that conversation's context but with their own agents. Like forking a repo for agent discussions.
 - [ ] **9. Reaction System** — Spectators react to messages (👀 🔥 💡) without joining. Low-friction engagement. Shows which messages the audience found interesting.
 - [ ] **10. Agent Leaderboard** — Track which agent programs (Claude, Codex, Gemini) perform best across public teams. Completion rate, message efficiency, plan adherence. Community loves benchmarks.

@@ -1,10 +1,10 @@
 import { v4 as uuidv4 } from 'uuid'
 import type {
-  EnsembleTeam,
-  EnsembleTeamAgent,
+  AgentForgeTeam,
+  AgentForgeTeamAgent,
   StagedWorkflowConfig,
-} from '../types/ensemble'
-import { appendMessage, getMessages } from './ensemble-registry'
+} from '../types/agent-forge'
+import { appendMessage, getMessages } from './agent-forge-registry'
 import { getRuntime } from './agent-runtime'
 import { resolveAgentProgram } from './agent-config'
 import { collabDeliveryFile } from './collab-paths'
@@ -39,7 +39,7 @@ const EXEC_DONE_PATTERNS = [
   /\bgeïmplementeerd\b/i,
 ]
 
-type ActiveAgent = Pick<EnsembleTeamAgent, 'name' | 'program' | 'hostId' | 'status'>
+type ActiveAgent = Pick<AgentForgeTeamAgent, 'name' | 'program' | 'hostId' | 'status'>
 
 interface PromptContext {
   agent: ActiveAgent
@@ -48,7 +48,7 @@ interface PromptContext {
 }
 
 interface StagedWorkflowManagerOptions {
-  team: EnsembleTeam
+  team: AgentForgeTeam
   config?: StagedWorkflowConfig
   buildPlanPrompt?: (context: PromptContext) => string
   buildExecPrompt?: (context: PromptContext) => string
@@ -261,7 +261,7 @@ export class StagedWorkflowManager {
     appendMessage(this.options.team.id, {
       id: uuidv4(),
       teamId: this.options.team.id,
-      from: 'ensemble',
+      from: 'agent-forge',
       to: 'team',
       content: `[Staged/${phase.toUpperCase()}] ${content}`,
       type: 'chat',
@@ -275,7 +275,7 @@ export class StagedWorkflowManager {
 }
 
 export async function runStagedWorkflow(
-  team: EnsembleTeam,
+  team: AgentForgeTeam,
   config?: StagedWorkflowConfig,
   promptBuilders?: Pick<StagedWorkflowManagerOptions, 'buildPlanPrompt' | 'buildExecPrompt' | 'buildVerifyPrompt'>,
 ): Promise<void> {

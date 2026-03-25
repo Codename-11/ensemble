@@ -17,7 +17,7 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const SCRIPT_DIR = path.dirname(__filename)
 const REPO_DIR = path.resolve(SCRIPT_DIR, '..')
-const MCP_SERVER_PATH = path.join(REPO_DIR, 'mcp', 'ensemble-mcp-server.mjs')
+const MCP_SERVER_PATH = path.join(REPO_DIR, 'mcp', 'agent-forge-mcp-server.mjs')
 
 // ── Colors ──────────────────────────────────────────────────────
 const G = '\x1b[92m'
@@ -183,7 +183,7 @@ function showStatus() {
   // Check Claude
   if (hasCommand('claude')) {
     const list = tryExec('claude', ['mcp', 'list'])
-    if (list !== null && list.includes('ensemble')) {
+    if (list !== null && list.includes('agent-forge')) {
       log(`  ${CHECK} Claude Code: ${G}installed${R}`)
     } else {
       log(`  ${CROSS} Claude Code: not installed`)
@@ -195,7 +195,7 @@ function showStatus() {
   // Check Codex
   if (hasCommand('codex')) {
     const list = tryExec('codex', ['mcp', 'list'])
-    if (list !== null && list.includes('ensemble')) {
+    if (list !== null && list.includes('agent-forge')) {
       log(`  ${CHECK} Codex CLI: ${G}installed${R}`)
     } else {
       log(`  ${CROSS} Codex CLI: not installed`)

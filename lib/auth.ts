@@ -12,7 +12,7 @@ import Database from 'better-sqlite3'
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
-import { getEnsembleDataDir } from './ensemble-paths'
+import { getAgentForgeDataDir } from './agent-forge-paths'
 
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
 
@@ -20,7 +20,7 @@ let _db: Database.Database | null = null
 
 function getDb(): Database.Database {
   if (_db) return _db
-  const dbPath = path.join(getEnsembleDataDir(), 'auth.db')
+  const dbPath = path.join(getAgentForgeDataDir(), 'auth.db')
   _db = initDb(dbPath)
   return _db
 }

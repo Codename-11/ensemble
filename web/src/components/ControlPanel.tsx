@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ClipboardList, Send, Sparkles, Wand2 } from 'lucide-react'
 import { cn } from '../lib/utils'
-import type { EnsembleTeamAgent } from '../types'
+import type { AgentForgeTeamAgent } from '../types'
 
 type ControlMode = 'steer' | 'dispatch'
 
@@ -30,7 +30,7 @@ const STEERING_PRESETS: DispatchPreset[] = [
 ]
 
 interface ControlPanelProps {
-  agents: EnsembleTeamAgent[]
+  agents: AgentForgeTeamAgent[]
   onSend: (content: string, to?: string) => Promise<void>
   disabled?: boolean
 }

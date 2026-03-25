@@ -4,7 +4,7 @@
   "description": "Agent-Forge — Multi-agent collaboration engine. Deploy AI agent teams, watch them work in real-time.",
   "type": "module",
   "bin": {
-    "ensemble": "./cli/ensemble.ts"
+    "agent-forge": "./cli/agent-forge.ts"
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
@@ -16,9 +16,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "monitor": "tsx cli/monitor.ts --latest",
-    "cli": "tsx cli/ensemble.ts",
+    "cli": "tsx cli/agent-forge.ts",
     "launch": "node scripts/collab-launch.mjs",
-    "bridge": "node scripts/ensemble-bridge.mjs",
+    "bridge": "node scripts/agent-forge-bridge.mjs",
     "setup": "node scripts/setup-claude-code.mjs",
     "mcp:install": "node scripts/mcp-install.mjs install",
     "mcp:uninstall": "node scripts/mcp-install.mjs uninstall",

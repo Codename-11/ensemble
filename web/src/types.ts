@@ -45,7 +45,7 @@ export interface JoinTeamResponse {
     id: string
     name: string
     description: string
-    status: EnsembleTeam['status']
+    status: AgentForgeTeam['status']
     visibility: TeamVisibility
     lifecycle: SessionLifecycle
     agent_count: number
@@ -58,7 +58,7 @@ export interface LobbyTeam {
   id: string
   name: string
   description: string
-  status: EnsembleTeam['status']
+  status: AgentForgeTeam['status']
   agentCount: number
   participantCount: number
   spectatorCount: number
@@ -81,8 +81,8 @@ export interface LobbyState {
 
 export interface SpectatorState {
   teamId: string
-  team: EnsembleTeam | null
-  messages: EnsembleMessage[]
+  team: AgentForgeTeam | null
+  messages: AgentForgeMessage[]
   connected: boolean
   joinedAsHuman: boolean
   participantId?: string
@@ -126,17 +126,17 @@ export interface TeamPlan {
   version: number
 }
 
-export interface EnsembleTeam {
+export interface AgentForgeTeam {
   id: string
   name: string
   description: string
   status: 'forming' | 'active' | 'paused' | 'completed' | 'disbanded' | 'failed'
-  agents: EnsembleTeamAgent[]
+  agents: AgentForgeTeamAgent[]
   createdBy: string
   createdAt: string
   completedAt?: string
   feedMode: 'silent' | 'summary' | 'live'
-  result?: EnsembleTeamResult
+  result?: AgentForgeTeamResult
   plan?: TeamPlan
   config?: TeamConfig
   visibility: TeamVisibility
@@ -147,7 +147,7 @@ export interface EnsembleTeam {
   tags?: string[]
 }
 
-export interface EnsembleTeamAgent {
+export interface AgentForgeTeamAgent {
   agentId: string
   name: string
   program: string
@@ -159,7 +159,7 @@ export interface EnsembleTeamAgent {
   origin?: ParticipantOrigin
 }
 
-export interface EnsembleTeamResult {
+export interface AgentForgeTeamResult {
   summary: string
   decisions: string[]
   discoveries: string[]
@@ -169,7 +169,7 @@ export interface EnsembleTeamResult {
   disbandReason?: string    // why the team was disbanded
 }
 
-export interface EnsembleMessage {
+export interface AgentForgeMessage {
   id: string
   teamId: string
   from: string
@@ -194,7 +194,7 @@ export interface ProjectDirectory {
   path: string
 }
 
-export interface EnsembleServerInfo {
+export interface AgentForgeServerInfo {
   cwd: string
   agents: Array<{
     id: string
@@ -207,7 +207,7 @@ export interface EnsembleServerInfo {
   launchDefaults?: {
     minAgents: number
     maxAgents: number
-    feedMode: EnsembleTeam['feedMode']
+    feedMode: AgentForgeTeam['feedMode']
   }
   recentDirectories: string[]
   projectDirectories: ProjectDirectory[]

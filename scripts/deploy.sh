@@ -26,14 +26,14 @@ npm run build
 cd "$REPO_DIR"
 
 # Restart service
-echo "🔄 Restarting openclaw-ensemble service..."
-systemctl --user restart openclaw-ensemble
+echo "🔄 Restarting openclaw-agent-forge service..."
+systemctl --user restart openclaw-agent-forge
 
 # Verify
 sleep 2
 if curl -s http://localhost:23000/api/v1/health | grep -q '"healthy"'; then
   echo "✅ Agent-Forge deployed successfully!"
 else
-  echo "❌ Health check failed — check logs: journalctl --user -u openclaw-ensemble -n 50"
+  echo "❌ Health check failed — check logs: journalctl --user -u openclaw-agent-forge -n 50"
   exit 1
 fi

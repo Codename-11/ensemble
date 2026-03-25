@@ -1,5 +1,5 @@
 /**
- * EnsembleClient — Reusable data layer for Agent-Forge team monitoring.
+ * AgentForgeClient — Reusable data layer for Agent-Forge team monitoring.
  *
  * Extracts the API communication and state management from the TUI monitor
  * so it can be shared between the CLI monitor and a future React SPA.
@@ -12,23 +12,23 @@ import http from 'http'
 
 // ─────────────────────────── TYPES ───────────────────────────────────────
 
-export interface EnsembleAgent {
+export interface AgentForgeAgent {
   name: string
   program: string
   role: string
   status: string
 }
 
-export interface EnsembleTeam {
+export interface AgentForgeTeam {
   id: string
   name: string
   description: string
   status: string
-  agents: EnsembleAgent[]
+  agents: AgentForgeAgent[]
   createdAt: string
 }
 
-export interface EnsembleMessage {
+export interface AgentForgeMessage {
   id: string
   from: string
   to: string
@@ -37,13 +37,13 @@ export interface EnsembleMessage {
   type: string
 }
 
-export interface EnsembleClientEvents {
-  'team': (team: EnsembleTeam) => void
-  'messages': (messages: EnsembleMessage[], newCount: number) => void
+export interface AgentForgeClientEvents {
+  'team': (team: AgentForgeTeam) => void
+  'messages': (messages: AgentForgeMessage[], newCount: number) => void
   'error': (error: Error) => void
   'connected': () => void
   'disconnected': () => void
-  'disbanded': (team: EnsembleTeam) => void
+  'disbanded': (team: AgentForgeTeam) => void
 }
 
 // ─────────────────────────── HTTP HELPERS ────────────────────────────────
@@ -90,9 +90,9 @@ const DEFAULT_API_BASE = 'http://localhost:23000'
 const DEFAULT_POLL_INTERVAL_MS = 2000
 const MAX_MESSAGES = 1000
 
-export class EnsembleClient extends EventEmitter {
-  private team: EnsembleTeam | null = null
-  private messages: EnsembleMessage[] = []
+export class AgentForgeClient extends EventEmitter {
+  private team: AgentForgeTeam | null = null
+  private messages: AgentForgeMessage[] = []
   private lastSeenTimestamp: string | null = null
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private connected = false
@@ -107,11 +107,11 @@ export class EnsembleClient extends EventEmitter {
 
   // ─── Public read-only accessors ────────────────────────────────────
 
-  getTeam(): EnsembleTeam | null {
+  getTeam(): AgentForgeTeam | null {
     return this.team
   }
 
-  getMessages(): EnsembleMessage[] {
+  getMessages(): AgentForgeMessage[] {
     return this.messages
   }
 
@@ -177,7 +177,7 @@ export class EnsembleClient extends EventEmitter {
    */
   static async resolveLatestTeamId(apiBase?: string): Promise<string | null> {
     const base = apiBase || process.env.AGENT_FORGE_URL || DEFAULT_API_BASE
-    const data = await apiGet<{ teams: EnsembleTeam[] }>('/api/agent-forge/teams', base)
+    const data = await apiGet<{ teams: AgentForgeTeam[] }>('/api/agent-forge/teams', base)
     const active = data.teams.filter(t => t.status === 'active' || t.status === 'forming')
     if (active.length === 0) return null
     return active[active.length - 1].id
@@ -186,9 +186,9 @@ export class EnsembleClient extends EventEmitter {
   /**
    * Fetch all teams (useful for team picker UIs).
    */
-  static async fetchTeams(apiBase?: string): Promise<EnsembleTeam[]> {
+  static async fetchTeams(apiBase?: string): Promise<AgentForgeTeam[]> {
     const base = apiBase || process.env.AGENT_FORGE_URL || DEFAULT_API_BASE
-    const data = await apiGet<{ teams: EnsembleTeam[] }>('/api/agent-forge/teams', base)
+    const data = await apiGet<{ teams: AgentForgeTeam[] }>('/api/agent-forge/teams', base)
     return data.teams
   }
 
@@ -214,7 +214,7 @@ export class EnsembleClient extends EventEmitter {
   }
 
   private async fetchTeam(): Promise<void> {
-    const data = await apiGet<{ team: EnsembleTeam }>(
+    const data = await apiGet<{ team: AgentForgeTeam }>(
       `/api/agent-forge/teams/${this.teamId}`,
       this.apiBase,
     )
@@ -226,7 +226,7 @@ export class EnsembleClient extends EventEmitter {
     const sinceParam = this.lastSeenTimestamp
       ? `?since=${encodeURIComponent(this.lastSeenTimestamp)}`
       : ''
-    const data = await apiGet<{ messages: EnsembleMessage[] }>(
+    const data = await apiGet<{ messages: AgentForgeMessage[] }>(
       `/api/agent-forge/teams/${this.teamId}/feed${sinceParam}`,
       this.apiBase,
     )

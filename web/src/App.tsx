@@ -14,7 +14,7 @@ import { LandingPage } from './components/LandingPage'
 import { SpectatorView } from './components/SpectatorView'
 import { ReplayView } from './components/ReplayView'
 import { DocsPage } from './components/DocsPage'
-import { useEnsemble } from './hooks/useEnsemble'
+import { useAgentForge } from './hooks/useAgentForge'
 
 // Landing page state — fetched from server /api/agent-forge/info
 let _landingEnabled: boolean | null = null
@@ -42,7 +42,7 @@ export function App() {
     return m ? m[1] : null
   })
 
-  const { team, messages, connected, error, sendMessage, disbandTeam } = useEnsemble(monitorTeamId)
+  const { team, messages, connected, error, sendMessage, disbandTeam } = useAgentForge(monitorTeamId)
 
   // Sync monitorTeamId from URL changes
   useEffect(() => {

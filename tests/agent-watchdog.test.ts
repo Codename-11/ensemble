@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { AgentForgeMessage, AgentForgeTeam } from '../types/agent-forge'
 import {
   AgentWatchdog,
   getWatchdogNudgeMs,
   getWatchdogStallMs,
 } from '../lib/agent-watchdog'
 
-function makeTeam(overrides: Partial<EnsembleTeam> = {}): EnsembleTeam {
+function makeTeam(overrides: Partial<AgentForgeTeam> = {}): AgentForgeTeam {
   return {
     id: overrides.id ?? 'team-1',
     name: overrides.name ?? 'alpha',
@@ -33,7 +33,7 @@ function makeTeam(overrides: Partial<EnsembleTeam> = {}): EnsembleTeam {
   }
 }
 
-function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
+function makeMessage(overrides: Partial<AgentForgeMessage> = {}): AgentForgeMessage {
   return {
     id: overrides.id ?? `msg-${Math.random().toString(36).slice(2, 8)}`,
     teamId: overrides.teamId ?? 'team-1',
@@ -50,9 +50,9 @@ describe('AgentWatchdog', () => {
   const originalStallMs = process.env.AGENT_FORGE_WATCHDOG_STALL_MS
 
   let nowMs: number
-  let teams: EnsembleTeam[]
-  let messages: EnsembleMessage[]
-  let appended: EnsembleMessage[]
+  let teams: AgentForgeTeam[]
+  let messages: AgentForgeMessage[]
+  let appended: AgentForgeMessage[]
   let sendKeys: ReturnType<typeof vi.fn>
   let pasteFromFile: ReturnType<typeof vi.fn>
   let postRemoteSessionCommand: ReturnType<typeof vi.fn>

@@ -1,10 +1,10 @@
 # Agent-Forge — Development Guide
 
 ## What is this?
-Agent-Forge (formerly Ensemble) is a multi-agent collaboration engine. Deploy AI agent teams that communicate via MCP, monitor them through a React dashboard, let external agents join via HTTP, and spectate in real-time.
+Agent-Forge (formerly AgentForge) is a multi-agent collaboration engine. Deploy AI agent teams that communicate via MCP, monitor them through a React dashboard, let external agents join via HTTP, and spectate in real-time.
 
 - **Repo:** https://github.com/Codename-11/agent-forge
-- **Live instance:** https://ensemble.axiom-labs.dev (behind Authelia)
+- **Live instance:** https://agent-forge.axiom-labs.dev (behind Authelia)
 - **Local:** http://localhost:23000
 
 ## Project Structure
@@ -12,16 +12,16 @@ Agent-Forge (formerly Ensemble) is a multi-agent collaboration engine. Deploy AI
 ```
 agent-forge/
 ├── server.ts                    # HTTP server — all API routes
-├── services/ensemble-service.ts # Business logic — teams, agents, messages
+├── services/agent-forge-service.ts # Business logic — teams, agents, messages
 ├── lib/                         # Core libraries
 │   ├── agent-spawner.ts         # Agent lifecycle (spawn/kill)
 │   ├── agent-runtime.ts         # Runtime abstraction (tmux/pty)
 │   ├── agent-config.ts          # Agent program config (agents.json)
 │   ├── agent-watchdog.ts        # Stall/nudge detection
-│   ├── ensemble-registry.ts     # Team persistence (JSONL)
-│   └── ensemble-paths.ts        # Data directory paths
+│   ├── agent-forge-registry.ts     # Team persistence (JSONL)
+│   └── agent-forge-paths.ts        # Data directory paths
 ├── types/
-│   ├── ensemble.ts              # Core types (Team, Agent, Message, etc.)
+│   ├── agent-forge.ts              # Core types (Team, Agent, Message, etc.)
 │   └── agent-program.ts         # Agent program config types
 ├── web/                         # React SPA (Vite + Tailwind + Zustand)
 │   └── src/
@@ -42,11 +42,11 @@ agent-forge/
 │       │   ├── TeamControls.tsx     # Visibility + sharing controls
 │       │   └── SettingsPage.tsx     # Server configuration
 │       ├── hooks/
-│       │   ├── useEnsemble.ts       # API client hook
+│       │   ├── useAgentForge.ts       # API client hook
 │       │   ├── useRouter.ts         # pushState routing hook
 │       │   └── useSounds.ts         # Web Audio notifications
 │       └── types.ts                 # Frontend type mirrors
-├── cli/                         # CLI tools (ensemble.ts, monitor.ts)
+├── cli/                         # CLI tools (agent-forge.ts, monitor.ts)
 ├── scripts/                     # Deploy script, shell helpers
 ├── docs/                        # Architecture specs, API docs
 ├── agents.json                  # Agent program definitions
@@ -60,7 +60,7 @@ All in `server.ts`. Pattern: regex match on path → parse body → call service
 API prefix: `/api/agent-forge/`.
 
 ### Types
-Server types in `types/ensemble.ts`, mirrored in `web/src/types.ts`. Keep both in sync.
+Server types in `types/agent-forge.ts`, mirrored in `web/src/types.ts`. Keep both in sync.
 
 ### Routing
 SPA uses pushState routing (not hash). Routes:

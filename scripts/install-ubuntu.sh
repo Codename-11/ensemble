@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# install-ubuntu.sh — Set up ensemble on Ubuntu
+# install-ubuntu.sh — Set up agent-forge on Ubuntu
 set -euo pipefail
 
-echo "Installing ensemble dependencies..."
+echo "Installing agent-forge dependencies..."
 
 # System packages
 sudo apt-get update
