@@ -1536,6 +1536,7 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
         branch: null,
         lastDeployTime: null,
         serviceActive: false,
+        serviceRunning: false,
         commitsBehind: 0,
         upToDate: true,
       }
@@ -1562,8 +1563,13 @@ es.onerror = () => { append('[onerror] EventSource connection lost'); };
       // Service status (Linux only)
       try {
         const status = execSyncCmd('systemctl --user is-active openclaw-agent-forge', { cwd: projectRoot, encoding: 'utf-8' }).trim()
-        result.serviceActive = status === 'active'
-      } catch { result.serviceActive = false }
+        const isRunning = status === 'active'
+        result.serviceActive = isRunning
+        result.serviceRunning = isRunning
+      } catch {
+        result.serviceActive = false
+        result.serviceRunning = false
+      }
 
       // Commits behind origin/main
       try {

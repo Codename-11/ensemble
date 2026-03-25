@@ -27,6 +27,7 @@ cd "$REPO_DIR"
 
 # Restart service
 echo "🔄 Restarting openclaw-agent-forge service..."
+systemctl --user daemon-reload
 systemctl --user restart openclaw-agent-forge
 
 # Verify
